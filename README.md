@@ -4,6 +4,13 @@
     <strong>IoT-Based False Data Injection Attack Detection, IP Spoofing Simulation & Data Recovery for Smart Grid Energy Monitoring</strong>
   </p>
   <p align="center">
+    <img src="https://img.shields.io/badge/Status-🚧%20Work%20In%20Progress-yellow?style=for-the-badge" alt="WIP">
+    <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License">
+    <img src="https://img.shields.io/badge/Python-3.9+-green?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+    <img src="https://img.shields.io/badge/Platform-ESP32-red?style=for-the-badge&logo=espressif&logoColor=white" alt="ESP32">
+    <img src="https://img.shields.io/badge/Raspberry%20Pi-4B-C51A4A?style=for-the-badge&logo=raspberrypi&logoColor=white" alt="Raspberry Pi">
+  </p>
+  <p align="center">
     <a href="#-architecture">Architecture</a> •
     <a href="#-hardware-requirements">Hardware</a> •
     <a href="#-installation">Installation</a> •
@@ -11,6 +18,9 @@
     <a href="#-attack-scenarios">Attacks</a> •
     <a href="#-results">Results</a>
   </p>
+
+  > **⚠️ This project is currently under active development. Features may change, and some modules are being tested and refined.**
+
 </p>
 
 ---

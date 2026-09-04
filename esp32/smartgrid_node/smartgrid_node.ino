@@ -105,6 +105,8 @@ struct PzemData {
   bool valid;
 };
 
+PzemData readPzem();
+
 PzemData readPzem() {
   PzemData data = {0, 0, 0, 0, 0, 0, 0, false};
   

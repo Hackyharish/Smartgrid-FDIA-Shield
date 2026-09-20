@@ -14,11 +14,11 @@ RESEARCH DISCLAIMER:
     This script is for academic research purposes only.
     Use only on networks and devices you own and control.
     Replay attacks on public networks is illegal.
-    This testbed is isolated to a local lab network (192.168.1.0/24).
+    This testbed is isolated to a local lab network (10.59.53.0/24).
 
 WHAT THIS SCRIPT DOES:
     Phase A — CAPTURE: Sniff one legitimate MQTT PUBLISH packet from the real
-              ESP32 (192.168.1.101) to the broker (192.168.1.100:1883).
+              ESP32 to the broker (10.59.53.221:1883).
     Phase B — REPLAY: Send that exact same packet over and over.
 
 WHY THIS IS DETECTABLE:
@@ -49,8 +49,8 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-ESP32_IP = "192.168.1.101"
-BROKER_IP = "192.168.1.100"
+ESP32_IP = "10.59.53.101"  # ESP32 uses DHCP — check Serial Monitor for actual IP and update this
+BROKER_IP = "10.59.53.221"
 BROKER_PORT = 1883
 CAPTURE_TIMEOUT = 30  # seconds to wait for a legitimate packet
 
@@ -138,7 +138,7 @@ def replay_packet(packet, duration: int = 60, interval: float = 5.0):
     Replay a captured packet repeatedly.
     
     The replayed packet retains:
-        - Original source IP (192.168.1.101 — legitimate)
+        - Original source IP (ESP32 DHCP IP — legitimate)
         - Original MQTT payload (legitimate JSON with valid HMAC)
         - But: timestamp and seq are STALE (frozen at capture time)
     

@@ -176,7 +176,7 @@ class TestRunner:
               f'dominant={results["dominant_detector"]}')
         return results
     
-    def scenario_4_ip_spoof(self, duration=60, attacker_host='192.168.1.200'):
+    def scenario_4_ip_spoof(self, duration=60, attacker_host='10.59.53.200'):
         """Scenario 4: IP Spoofing attack."""
         print('\n' + '='*60)
         print('SCENARIO 4 — IP SPOOFING ATTACK')
@@ -212,7 +212,7 @@ class TestRunner:
             print(f'  Spoof episodes: {spoof_summary.get("total_spoof_episodes", 0)}')
         return results
     
-    def scenario_5_ip_spoof_advanced(self, duration=60, attacker_host='192.168.1.200'):
+    def scenario_5_ip_spoof_advanced(self, duration=60, attacker_host='10.59.53.200'):
         """Scenario 5: IP Spoofing with valid HMAC (insider threat)."""
         print('\n' + '='*60)
         print('SCENARIO 5 — IP SPOOFING + VALID HMAC (Insider Threat)')
@@ -242,7 +242,7 @@ class TestRunner:
               f'dominant={results["dominant_detector"]}')
         return results
     
-    def scenario_6_replay(self, duration=60, attacker_host='192.168.1.200'):
+    def scenario_6_replay(self, duration=60, attacker_host='10.59.53.200'):
         """Scenario 6: Replay attack."""
         print('\n' + '='*60)
         print('SCENARIO 6 — REPLAY ATTACK')
@@ -276,7 +276,7 @@ class TestRunner:
     # ═══════════════════════════════════════════════
     
     def run_all(self, baseline_duration=300, attack_duration=60,
-                gap_between_scenarios=30, attacker_host='192.168.1.200'):
+                gap_between_scenarios=30, attacker_host='10.59.53.200'):
         """Run all 6 scenarios sequentially with gaps between them."""
         print('╔══════════════════════════════════════════════════╗')
         print('║  SmartGrid Test Runner — Full 6-Scenario Suite   ║')
@@ -364,7 +364,7 @@ def main():
     parser.add_argument('--baseline', type=int, default=300, help='Baseline duration (s)')
     parser.add_argument('--attack', type=int, default=60, help='Attack scenario duration (s)')
     parser.add_argument('--gap', type=int, default=30, help='Gap between scenarios (s)')
-    parser.add_argument('--attacker', type=str, default='192.168.1.200', help='Attacker host IP')
+    parser.add_argument('--attacker', type=str, default='10.59.53.200', help='Attacker host IP')
     parser.add_argument('--scenario', type=int, default=0, help='Run single scenario (1-6), 0=all')
     args = parser.parse_args()
     

@@ -13,7 +13,7 @@ from pathlib import Path
 load_dotenv(Path(__file__).parent / '.env')
 
 # MQTT Configuration
-MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '192.168.1.100')
+MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '10.59.53.221')
 MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 MQTT_TOPIC_TELEMETRY = 'smartgrid/node01/telemetry'
 MQTT_TOPIC_CMD = 'smartgrid/node01/cmd'
@@ -21,7 +21,7 @@ MQTT_TOPIC_ALERTS = 'smartgrid/alerts'
 
 # Node Configuration
 NODE_ID = os.getenv('NODE_ID', 'node_01')
-EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '192.168.1.101')
+EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '')  # Note: ESP32 uses DHCP, IP is dynamic
 
 # Security
 HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')

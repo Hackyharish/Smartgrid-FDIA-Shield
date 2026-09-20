@@ -15,7 +15,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 class AlertPublisher:
-    def __init__(self, broker_ip='192.168.1.100', broker_port=1883,
+    def __init__(self, broker_ip='10.59.53.221', broker_port=1883,
                  alert_topic='smartgrid/alerts'):
         self.broker_ip = broker_ip
         self.broker_port = broker_port

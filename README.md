@@ -69,7 +69,7 @@ An attacker machine simulates IP spoofing, replay attacks, and firmware-level da
 │                        PHYSICAL LAYER                                      │
 │  [AC Mains 230V] ──→ [AC Load 60W] ──→ [PZEM-004T CT Clamp]              │
 │                                               │ UART 9600 baud             │
-│                                        [ESP32 (192.168.1.101)]             │
+│                                        [ESP32 (10.59.53.x (DHCP))]             │
 │                                               │                            │
 │                             Wi-Fi 802.11b/g/n │ MQTT PUBLISH               │
 │                                               │ smartgrid/node01/telemetry │
@@ -79,11 +79,11 @@ An attacker machine simulates IP spoofing, replay attacks, and firmware-level da
 │                     NETWORK LAYER (Attack Surface)                         │
 │                                                                            │
 │  NORMAL:   ESP32 (real IP) ──TCP:1883──→ Raspberry Pi MQTT Broker         │
-│  SPOOFED:  Attacker ──→ forged src IP = 192.168.1.101 ──→ Broker          │
+│  SPOOFED:  Attacker ──→ forged src IP = 10.59.53.x (DHCP) ──→ Broker          │
 └───────────────────────────────────────────────┬────────────────────────────┘
                                                 │
 ┌───────────────────────────────────────────────▼────────────────────────────┐
-│              EDGE COMPUTING (Raspberry Pi 192.168.1.100)                   │
+│              EDGE COMPUTING (Raspberry Pi 10.59.53.221)                   │
 │                                                                            │
 │  Mosquitto ──→ mqtt_subscriber.py ──→ hmac_verifier.py                    │
 │                                    ──→ network_fingerprint.py              │
@@ -125,14 +125,14 @@ ATTACK_CONFIDENCE = 0.25 × physics_score
 
 ## 🌐 Network Topology
 
-All devices must be on the **same local network** (192.168.1.0/24):
+All devices must be on the **same local network** (10.59.53.0/24):
 
 | Device | Static IP | Role |
 |--------|-----------|------|
-| ESP32 Node | `192.168.1.101` | Legitimate sensor node (MQTT publisher) |
-| Raspberry Pi | `192.168.1.100` | MQTT broker + edge detection gateway |
-| Attacker Laptop | `192.168.1.200` | Runs IP spoofing & replay attacks |
-| Home Router | `192.168.1.1` | Network gateway |
+| ESP32 Node | `10.59.53.x (DHCP)` | Legitimate sensor node (MQTT publisher) |
+| Raspberry Pi | `10.59.53.221` | MQTT broker + edge detection gateway |
+| Attacker Laptop | `10.59.53.200` | Runs IP spoofing & replay attacks |
+| Home Router | `10.59.53.1` | Network gateway |
 
 ---
 
@@ -226,7 +226,7 @@ For detailed wiring diagrams and step-by-step assembly, see [`docs/hardware_setu
    ```cpp
    const char* WIFI_SSID = "YOUR_WIFI_SSID";      // ← Your Wi-Fi network name
    const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";   // ← Your Wi-Fi password
-   const char* MQTT_SERVER = "192.168.1.100";      // ← Raspberry Pi IP
+   const char* MQTT_SERVER = "10.59.53.221";      // ← Raspberry Pi IP
    ```
 
 3. Select board: **Tools → Board → ESP32 Dev Module**
@@ -237,8 +237,8 @@ For detailed wiring diagrams and step-by-step assembly, see [`docs/hardware_setu
 
 6. Open **Serial Monitor** (115200 baud) to verify:
    ```
-   [node_01] WiFi connected: 192.168.1.101
-   [node_01] MQTT connected to 192.168.1.100:1883
+   [node_01] WiFi connected: 10.59.53.x (DHCP)
+   [node_01] MQTT connected to 10.59.53.221:1883
    [node_01][12:34:56] V=230.1 I=0.261 P=60.0 PF=0.99 | MQTT OK | HMAC=a3f2...
    ```
 
@@ -255,7 +255,7 @@ For detailed wiring diagrams and step-by-step assembly, see [`docs/hardware_setu
 
 ```bash
 # SSH into your Raspberry Pi
-ssh pi@192.168.1.100
+ssh pi@10.59.53.221
 
 # Clone the repository
 git clone https://github.com/Hackyharish/Smartgrid-FDIA-Shield.git
@@ -273,7 +273,7 @@ sudo ./setup.sh
 4. ✅ Creates project directory structure (`data/`, `logs/`, `models/`, `results/`)
 5. ✅ Creates Python virtual environment and installs all dependencies
 6. ✅ Sets up systemd service for auto-start on boot
-7. ✅ Configures static IP (192.168.1.100)
+7. ✅ Configures static IP (10.59.53.221)
 
 **Create the `.env` file:**
 ```bash
@@ -285,9 +285,9 @@ Add the following:
 ```env
 THINGSPEAK_WRITE_KEY=YOUR_THINGSPEAK_API_KEY
 HMAC_SECRET_KEY=smartgrid_secret_key_2025
-MQTT_BROKER_IP=192.168.1.100
+MQTT_BROKER_IP=10.59.53.221
 MQTT_PORT=1883
-EXPECTED_NODE_IP=192.168.1.101
+EXPECTED_NODE_IP=10.59.53.x (DHCP)
 NODE_ID=node_01
 ```
 
@@ -296,14 +296,14 @@ NODE_ID=node_01
 sudo systemctl status mosquitto
 
 # Test by subscribing to all topics
-mosquitto_sub -h 192.168.1.100 -t '#' -v
+mosquitto_sub -h 10.59.53.221 -t '#' -v
 # You should see ESP32 messages arriving every 5 seconds
 ```
 
 **Verify network connectivity:**
 ```bash
-ping 192.168.1.101   # ESP32 should respond
-ping 192.168.1.1     # Router should respond
+ping 10.59.53.x (DHCP)   # ESP32 should respond
+ping 10.59.53.1     # Router should respond
 ```
 
 ---
@@ -314,8 +314,8 @@ ping 192.168.1.1     # Router should respond
 
 **Prerequisites:**
 - Ubuntu 22.04 (or any Linux with raw socket support)
-- Connected to the same LAN (192.168.1.0/24)
-- Static IP: `192.168.1.200`
+- Connected to the same LAN (10.59.53.0/24)
+- Static IP: `10.59.53.200`
 
 ```bash
 # Clone the repo on the attacker machine
@@ -326,14 +326,14 @@ cd Smartgrid-FDIA-Shield/attacker
 pip install -r requirements_attacker.txt
 
 # Set static IP
-sudo nmcli con mod "Wired connection 1" ipv4.addresses 192.168.1.200/24
-sudo nmcli con mod "Wired connection 1" ipv4.gateway 192.168.1.1
+sudo nmcli con mod "Wired connection 1" ipv4.addresses 10.59.53.200/24
+sudo nmcli con mod "Wired connection 1" ipv4.gateway 10.59.53.1
 sudo nmcli con mod "Wired connection 1" ipv4.method manual
 sudo nmcli con up "Wired connection 1"
 
 # Verify
-ping 192.168.1.100   # Pi should respond
-ping 192.168.1.101   # ESP32 should respond
+ping 10.59.53.221   # Pi should respond
+ping 10.59.53.x (DHCP)   # ESP32 should respond
 ```
 
 ---
@@ -344,9 +344,9 @@ All configuration is centralized in `raspberry_pi/config.py` which loads from th
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MQTT_BROKER_IP` | `192.168.1.100` | Raspberry Pi MQTT broker address |
+| `MQTT_BROKER_IP` | `10.59.53.221` | Raspberry Pi MQTT broker address |
 | `MQTT_PORT` | `1883` | MQTT broker port |
-| `EXPECTED_NODE_IP` | `192.168.1.101` | Legitimate ESP32 node IP |
+| `EXPECTED_NODE_IP` | `10.59.53.x (DHCP)` | Legitimate ESP32 node IP |
 | `HMAC_SECRET_KEY` | `smartgrid_secret_key_2025` | Shared HMAC signing key |
 | `THINGSPEAK_WRITE_KEY` | (empty) | ThingSpeak API key for cloud dashboard |
 | `NODE_ID` | `node_01` | Sensor node identifier |
@@ -368,7 +368,7 @@ All configuration is centralized in `raspberry_pi/config.py` which loads from th
 
 ```bash
 # SSH into Raspberry Pi
-ssh pi@192.168.1.100
+ssh pi@10.59.53.221
 
 # Activate the virtual environment
 cd Smartgrid-FDIA-Shield/raspberry_pi
@@ -384,8 +384,8 @@ You should see:
 ```
 ╔══════════════════════════════════════════════════╗
 ║  SmartGrid FDI + IP Spoof Detection Gateway      ║
-║  Node: node_01 | Broker: 192.168.1.100:1883      ║
-║  Expected ESP32 IP: 192.168.1.101                ║
+║  Node: node_01 | Broker: 10.59.53.221:1883      ║
+║  Expected ESP32 IP: 10.59.53.x (DHCP)                ║
 ╚══════════════════════════════════════════════════╝
 ALL CHECKS PASSED ✓
 [12:34:51][node_01] V=230.1 I=0.261 P=60.0 | NORMAL
@@ -417,7 +417,7 @@ sudo python3 test_runner.py --scenario 2    # FDI voltage spike only
 sudo python3 test_runner.py --scenario 4    # IP spoofing only
 
 # Specify attacker machine IP
-sudo python3 test_runner.py --attacker 192.168.1.200
+sudo python3 test_runner.py --attacker 10.59.53.200
 ```
 
 ---
@@ -462,7 +462,7 @@ sudo python3 attack_controller.py
 ```
 ╔══════════════════════════════════════════════════════════════╗
 ║            SmartGrid Attack Controller                      ║
-║            Target: 192.168.1.100:1883 (MQTT Broker)         ║
+║            Target: 10.59.53.221:1883 (MQTT Broker)         ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  1. FDI via MQTT Command (ESP32 falsifies own readings)     ║
 ║  2. IP Spoofing Attack (forged source IP packets)           ║
@@ -478,7 +478,7 @@ sudo python3 attack_controller.py
 **Scenario 1 — FDI via MQTT Command:**
 ```bash
 # From any machine with MQTT access
-mosquitto_pub -h 192.168.1.100 -t "smartgrid/node01/cmd" \
+mosquitto_pub -h 10.59.53.221 -t "smartgrid/node01/cmd" \
   -m '{"cmd":"INJECT_FDI","voltage":1.5,"current":0.3,"duration_s":60}'
 ```
 
@@ -498,7 +498,7 @@ sudo python3 attack_replay.py --duration 60 --interval 5
 
 **Stop all attacks:**
 ```bash
-mosquitto_pub -h 192.168.1.100 -t "smartgrid/node01/cmd" -m '{"cmd":"STOP_ATTACK"}'
+mosquitto_pub -h 10.59.53.221 -t "smartgrid/node01/cmd" -m '{"cmd":"STOP_ATTACK"}'
 ```
 
 ### 6 Test Scenarios Summary

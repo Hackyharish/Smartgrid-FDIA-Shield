@@ -29,7 +29,7 @@ apt-get install -y mosquitto mosquitto-clients python3 python3-pip python3-venv 
 
 echo -e "\n${GREEN}[PART B] Configuring Mosquitto${NC}"
 cat > /etc/mosquitto/conf.d/smartgrid.conf << 'EOF'
-listener 1883 192.168.1.100
+listener 1883 0.0.0.0
 allow_anonymous true
 persistence true
 persistence_location /var/lib/mosquitto/
@@ -86,9 +86,9 @@ if [ -f /etc/dhcpcd.conf ]; then
         cat >> /etc/dhcpcd.conf << 'EOF'
 
 interface eth0
-static ip_address=192.168.1.100/24
-static routers=192.168.1.1
-static domain_name_servers=8.8.8.8
+# static ip_address=10.59.53.221/24
+# static routers=10.59.53.1
+# static domain_name_servers=8.8.8.8
 EOF
         echo "Static IP added to /etc/dhcpcd.conf"
         systemctl restart dhcpcd || true

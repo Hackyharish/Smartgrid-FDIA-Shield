@@ -13,7 +13,7 @@
 RESEARCH DISCLAIMER:
     This script is for academic research purposes only.
     Use only on networks and devices you own and control.
-    All attacks target a controlled lab network (192.168.1.0/24).
+    All attacks target a controlled lab network (10.59.53.0/24).
 
 ATTACK TYPES MANAGED:
     1. FDI via MQTT Command — Tells the ESP32 to falsify its own readings
@@ -41,7 +41,7 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-BROKER_IP = "192.168.1.100"
+BROKER_IP = "10.59.53.221"
 BROKER_PORT = 1883
 CMD_TOPIC = "smartgrid/node01/cmd"
 ALERTS_TOPIC = "smartgrid/alerts"

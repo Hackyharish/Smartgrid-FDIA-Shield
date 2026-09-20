@@ -32,14 +32,15 @@
 // ==============================================================================
 // SECTION 1 — Configuration
 // ==============================================================================
-const char* WIFI_SSID = "YOUR_SSID";
-const char* WIFI_PASS = "YOUR_PASSWORD";
-const char* MQTT_SERVER = "192.168.1.100";
+const char* WIFI_SSID = "HarishsPhone";
+const char* WIFI_PASS = "Podaapattiiii";
+const char* MQTT_SERVER = "10.59.53.221";
 const int MQTT_PORT = 1883;
 const char* NODE_ID = "node_01";
 const char* HMAC_SECRET_KEY = "smartgrid_secret_key_2025";
 const int PUBLISH_INTERVAL_MS = 5000;
 
+// Variables kept for reference, but unused to allow DHCP
 IPAddress staticIP(192, 168, 1, 101);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
@@ -227,7 +228,7 @@ void ensureWiFi() {
   
   Serial.print("Connecting to WiFi");
   // SECTION 2 — Static IP setup
-  WiFi.config(staticIP, gateway, subnet, dns);
+  // WiFi.config(staticIP, gateway, subnet, dns); // FIX: Commented out to use DHCP via Hotspot
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   int backoff = 1000;

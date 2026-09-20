@@ -8,21 +8,21 @@
 ║  INPUTS:    CLI args (duration, interval, scale factors, advanced mode)    ║
 ║  OUTPUTS:   Raw spoofed packets sent to MQTT broker on port 1883          ║
 ║  REQUIRES:  sudo, Scapy, Linux with raw socket permissions                ║
-║  TARGET:    Raspberry Pi MQTT broker at 192.168.1.100                      ║
-║  SPOOFS:    ESP32 node IP 192.168.1.101                                   ║
+║  TARGET:    Raspberry Pi MQTT broker at 10.59.53.221                       ║
+║  SPOOFS:    ESP32 node IP (DHCP)                                          ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 RESEARCH DISCLAIMER:
     This script is written for academic research purposes only.
     It must only be used on networks and devices you own and control.
     IP spoofing on public networks or networks you do not own is illegal.
-    This testbed is isolated to a local lab network (192.168.1.0/24).
+    This testbed is isolated to a local lab network (10.59.53.0/24).
     Running this requires: sudo, Scapy, and Linux with raw socket permissions.
 
 WHAT THIS SCRIPT DOES:
-    1. Crafts raw TCP/IP packets with source IP forged to 192.168.1.101 (ESP32)
+    1. Crafts raw TCP/IP packets with source IP forged to ESP32 DHCP IP
     2. Encapsulates MQTT PUBLISH messages with falsified energy readings
-    3. Sends them to the MQTT broker at 192.168.1.100:1883
+    3. Sends them to the MQTT broker at 10.59.53.221:1883
     4. The broker sees packets that appear to come from the real ESP32
     5. The HMAC signature is intentionally WRONG (attacker doesn't have the key)
     6. Optional --advanced-mode: compute valid HMAC (simulates insider threat)
@@ -55,9 +55,9 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-BROKER_IP = "192.168.1.100"
+BROKER_IP = "10.59.53.221"
 BROKER_PORT = 1883
-ESP32_IP = "192.168.1.101"  # The IP we're spoofing
+ESP32_IP = "10.59.53.101"  # ESP32 uses DHCP — check Serial Monitor for actual IP and update this
 MQTT_TOPIC = "smartgrid/node01/telemetry"
 
 # HMAC key — only used in --advanced-mode (insider threat simulation)

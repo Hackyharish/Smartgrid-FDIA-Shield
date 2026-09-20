@@ -296,7 +296,7 @@ class FDIDetector:
     def _replay_check(self, payload) -> bool:
         """Detect replay attacks via sequence number analysis."""
         node = payload.get('node_id', self.node_id)
-        seq = payload.get('sequence', None)
+        seq = payload.get('seq', payload.get('sequence', None))
         
         if seq is None:
             return False

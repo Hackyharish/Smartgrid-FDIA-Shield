@@ -341,6 +341,7 @@ def run_attack(args):
 # ═══════════════════════════════════════════════════════
 
 def main():
+    global BROKER_IP, ESP32_IP
     parser = argparse.ArgumentParser(
         description="SmartGrid IP Spoofing Attack Simulator (Research Only)",
         epilog="MUST be run with sudo on Linux. Lab network only."
@@ -375,7 +376,6 @@ def main():
         sys.exit(1)
     
     # Update globals if custom IPs provided
-    global BROKER_IP, ESP32_IP
     BROKER_IP = args.target_ip
     ESP32_IP = args.spoof_ip
     

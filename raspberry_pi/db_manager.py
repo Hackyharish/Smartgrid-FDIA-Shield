@@ -538,5 +538,3 @@ class DatabaseManager:
             logger.info("Database connection closed.")
         except sqlite3.Error as e:
             logger.error(f"Error closing database: {e}")
-
-"""

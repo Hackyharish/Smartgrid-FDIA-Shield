@@ -57,7 +57,7 @@ except ImportError:
 
 BROKER_IP = "10.59.53.30"
 BROKER_PORT = 1883
-ESP32_IP = "10.59.53.101"  # ESP32 uses DHCP — check Serial Monitor for actual IP and update this
+ESP32_IP = "10.59.53.251"
 MQTT_TOPIC = "smartgrid/node01/telemetry"
 
 # HMAC key — only used in --advanced-mode (insider threat simulation)

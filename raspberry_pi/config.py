@@ -21,7 +21,7 @@ MQTT_TOPIC_ALERTS = 'smartgrid/alerts'
 
 # Node Configuration
 NODE_ID = os.getenv('NODE_ID', 'node_01')
-EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '')  # Note: ESP32 uses DHCP, IP is dynamic
+EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '10.59.53.251')
 
 # Security
 HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')

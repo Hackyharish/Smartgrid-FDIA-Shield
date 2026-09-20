@@ -129,10 +129,10 @@ All devices must be on the **same local network** (10.59.53.0/24):
 
 | Device | Static IP | Role |
 |--------|-----------|------|
-| ESP32 Node | `10.59.53.x (DHCP)` | Legitimate sensor node (MQTT publisher) |
+| ESP32 Node | `10.59.53.251` | Legitimate sensor node (MQTT publisher) |
 | Raspberry Pi | `10.59.53.30` | MQTT broker + edge detection gateway |
 | Attacker Laptop | `10.59.53.200` | Runs IP spoofing & replay attacks |
-| Home Router | `10.59.53.1` | Network gateway |
+| Hotspot / Gateway | `10.59.53.1` | Network gateway |
 
 ---
 
@@ -287,7 +287,7 @@ THINGSPEAK_WRITE_KEY=YOUR_THINGSPEAK_API_KEY
 HMAC_SECRET_KEY=smartgrid_secret_key_2025
 MQTT_BROKER_IP=10.59.53.30
 MQTT_PORT=1883
-EXPECTED_NODE_IP=10.59.53.x (DHCP)
+EXPECTED_NODE_IP=10.59.53.251
 NODE_ID=node_01
 ```
 

@@ -49,7 +49,7 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-ESP32_IP = "10.59.53.101"  # ESP32 uses DHCP — check Serial Monitor for actual IP and update this
+ESP32_IP = "10.59.53.251"
 BROKER_IP = "10.59.53.30"
 BROKER_PORT = 1883
 CAPTURE_TIMEOUT = 30  # seconds to wait for a legitimate packet

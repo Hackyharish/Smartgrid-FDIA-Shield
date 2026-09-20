@@ -89,6 +89,10 @@ class NetworkFingerprint:
             self._sniffer_thread.join(timeout=5.0)
         logger.info('Network fingerprint sniffer stopped')
 
+    # Convenience aliases
+    start = start_sniffer
+    stop = stop_sniffer
+
     def _sniff_loop(self):
         """Main sniff loop - runs in background thread."""
         bpf_filter = f'tcp and dst port {self.broker_port}'

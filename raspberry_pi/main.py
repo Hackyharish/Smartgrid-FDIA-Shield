@@ -257,6 +257,9 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             )
         
         _print_status_line(payload, status, recovery_result)
+        
+    # Update latest telemetry & detection for Cloud Uploader
+    cloud.update_data(payload, detection_result)
 
 def shutdown_handler(signum, frame):
     """Handle graceful shutdown signals."""
@@ -273,24 +276,24 @@ def main():
     db = DatabaseManager(DB_PATH)
     
     logger.info("Initializing FDI Detector...")
-    detector = FDIDetector(db)
+    detector = FDIDetector(node_id=NODE_ID, rolling_window_size=ROLLING_WINDOW_SIZE, model_path=IF_MODEL_PATH)
     
     logger.info("Initializing Data Recovery...")
-    recovery = DataRecovery()
+    recovery = DataRecovery(interpolation_window=INTERPOLATION_WINDOW, kalman_process_noise=KALMAN_PROCESS_NOISE, kalman_measurement_noise=KALMAN_MEASUREMENT_NOISE)
     
     logger.info("Initializing Alert Publisher...")
-    alert_pub = AlertPublisher()
+    alert_pub = AlertPublisher(broker_ip=MQTT_BROKER_IP, broker_port=MQTT_PORT, alert_topic=MQTT_TOPIC_ALERTS)
     
     logger.info("Initializing Network Fingerprint...")
-    fingerprint = NetworkFingerprint(EXPECTED_NODE_IP)
+    fingerprint = NetworkFingerprint(target_ip=EXPECTED_NODE_IP, broker_port=MQTT_PORT)
     fingerprint.start()
     
     logger.info("Initializing MQTT Subscriber...")
-    subscriber = MQTTSubscriber(broker=MQTT_BROKER, port=MQTT_PORT, topic=MQTT_TOPIC)
+    subscriber = MQTTSubscriber(broker_ip=MQTT_BROKER_IP, broker_port=MQTT_PORT)
     subscriber.start()
     
     logger.info("Initializing Cloud Uploader...")
-    cloud = CloudUploader(db)
+    cloud = CloudUploader(api_key=THINGSPEAK_WRITE_KEY, base_url=THINGSPEAK_BASE_URL, upload_interval_s=CLOUD_UPLOAD_INTERVAL_S)
     cloud.start()
     
     # Register shutdown handlers

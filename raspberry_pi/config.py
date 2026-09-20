@@ -10,7 +10,15 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-load_dotenv(Path(__file__).parent / '.env')
+# Look for .env in current file's directory, current working directory, or standard install dir
+env_paths = [
+    Path(__file__).parent / '.env',
+    Path.cwd() / '.env',
+    Path('/home/smartgrid/smartgrid/.env')
+]
+for p in env_paths:
+    if p.exists():
+        load_dotenv(p, override=True)
 
 # MQTT Configuration
 MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '10.59.53.30')
@@ -27,7 +35,7 @@ EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '10.59.53.251')
 HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')
 
 # ThingSpeak
-THINGSPEAK_WRITE_KEY = os.getenv('THINGSPEAK_WRITE_KEY', '')
+THINGSPEAK_WRITE_KEY = os.getenv('THINGSPEAK_WRITE_KEY', '').strip().strip("'").strip('"')
 THINGSPEAK_BASE_URL = 'https://api.thingspeak.com/update'
 
 # Database

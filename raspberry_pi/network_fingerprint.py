@@ -167,8 +167,8 @@ class NetworkFingerprint:
         
         # Fingerprint comparison scores
         ttl_match = (pkt_ttl == self.fingerprint['ttl'])
-        # lwIP dynamically adjusts receive window depending on buffer state (~4000 to ~6500)
-        window_match = abs(pkt_window - self.fingerprint['tcp_window']) <= 1000
+        # lwIP receive window or mobile hotspot bridge TCP window (~5500 or ~32790)
+        window_match = (abs(pkt_window - self.fingerprint['tcp_window']) <= 2000) or (abs(pkt_window - 32790) <= 2000)
         
         # Options matching: check if observed options match known ESP32 options
         known_opts = set(self.fingerprint['tcp_options'])

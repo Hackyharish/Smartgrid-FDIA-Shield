@@ -86,7 +86,7 @@ if [ -f /etc/dhcpcd.conf ]; then
         cat >> /etc/dhcpcd.conf << 'EOF'
 
 interface eth0
-# static ip_address=10.59.53.221/24
+# static ip_address=10.59.53.30/24
 # static routers=10.59.53.1
 # static domain_name_servers=8.8.8.8
 EOF

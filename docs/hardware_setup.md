@@ -110,7 +110,7 @@ The experimental smart grid testbed is deployed on a dedicated, air-gapped subne
 +-------------------+              +-------------------+              +-------------------+
 |   ESP32 Node 01   |              |  Raspberry Pi 4   |              |  Attacker Laptop  |
 |   esp32-node01    |              |    pi-gateway     |              |    attacker-pc    |
-|   10.59.53.x (DHCP)   |              |   10.59.53.221   |              |   10.59.53.200   |
+|   10.59.53.x (DHCP)   |              |   10.59.53.30   |              |   10.59.53.200   |
 | (MQTT Publisher)  |              |  (Broker + Edge)  |              | (MITM / FDI Inject)|
 +-------------------+              +-------------------+              +-------------------+
 ```
@@ -120,7 +120,7 @@ The experimental smart grid testbed is deployed on a dedicated, air-gapped subne
 | Device | Hostname | Static IP | Subnet Mask | Gateway | Interface | Role in Architecture |
 |---|---|---|---|---|---|---|
 | **Home / Lab Router** | `router` | `10.59.53.1` | `255.255.255.0` | N/A | LAN / WLAN | Subnet gateway, DNS forwarder, Layer-2 switch |
-| **Raspberry Pi 4** | `pi-gateway` | `10.59.53.221` | `255.255.255.0` | `10.59.53.1` | `eth0` / `wlan0` | Mosquitto MQTT Broker (port 1883), FDI Detector, Data Recovery Engine |
+| **Raspberry Pi 4** | `pi-gateway` | `10.59.53.30` | `255.255.255.0` | `10.59.53.1` | `eth0` / `wlan0` | Mosquitto MQTT Broker (port 1883), FDI Detector, Data Recovery Engine |
 | **ESP32 WROOM-32** | `esp32-node01` | `10.59.53.x (DHCP)` | `255.255.255.0` | `10.59.53.1` | Wi-Fi (802.11b/g/n) | Edge Sensor Node: samples PZEM, computes HMAC-SHA256, publishes JSON telemetry |
 | **Attacker Laptop** | `attacker-pc` | `10.59.53.200` | `255.255.255.0` | `10.59.53.1` | `eth0` / `wlan0` | Security evaluation host: ARP spoofing, packet sniffing, stealth FDI injection |
 
@@ -217,7 +217,7 @@ flowchart TD
 2. Open the Arduino Serial Monitor at 115200 baud. Confirm Wi-Fi connection and valid sensor readings.
 3. On the Raspberry Pi, subscribe to the MQTT topic:
    ```bash
-   mosquitto_sub -h 10.59.53.221 -t 'smartgrid/node01/telemetry' -v
+   mosquitto_sub -h 10.59.53.30 -t 'smartgrid/node01/telemetry' -v
    ```
 4. Confirm JSON telemetry messages containing valid voltage, current, power, and HMAC tokens are printed every 1 second.
 
@@ -352,7 +352,7 @@ Connect the ESP32 to the PC and launch Arduino Serial Monitor at **115200 baud**
 [NETWORK] RSSI: -54 dBm
 [PZEM] Initializing PZEM-004T v3.0 on UART2 (RX: GPIO16, TX: GPIO17)...
 [PZEM] Initial probe successful! Grid Voltage: 231.4 V
-[MQTT] Connecting to broker: 10.59.53.221:1883 ... Connected!
+[MQTT] Connecting to broker: 10.59.53.30:1883 ... Connected!
 [TELEMETRY] Published seq=1 | V=231.4V, I=0.452A, P=104.3W, E=12Wh, F=50.0Hz, PF=0.99 | HMAC: a4f8...b3
 ```
 
@@ -385,7 +385,7 @@ Connect the ESP32 to the PC and launch Arduino Serial Monitor at **115200 baud**
 
 4. **Monitor Real-Time ESP32 Telemetry**:
    ```bash
-   pi@pi-gateway:~ $ mosquitto_sub -h 10.59.53.221 -t 'smartgrid/node01/telemetry' -v
+   pi@pi-gateway:~ $ mosquitto_sub -h 10.59.53.30 -t 'smartgrid/node01/telemetry' -v
    ```
    *Expected Real Output*:
    ```json
@@ -403,7 +403,7 @@ From the **Attacker Laptop** (`10.59.53.200`), test connectivity across all subn
 ping -c 3 10.59.53.1
 
 # Test Raspberry Pi Gateway & Broker
-ping -c 3 10.59.53.221
+ping -c 3 10.59.53.30
 
 # Test ESP32 Sensor Node
 ping -c 3 10.59.53.x (DHCP)
@@ -412,9 +412,9 @@ ping -c 3 10.59.53.x (DHCP)
 #### Ping Matrix Reference
 | Source Node | Destination | Command | Acceptable RTT | Pass Criteria |
 |---|---|---|---|---|
-| `attacker-pc` (10.59.53.200) | `pi-gateway` (10.59.53.221) | `ping -c 5 10.59.53.221` | $< 2\text{ ms}$ (Ethernet) | 0% packet loss |
+| `attacker-pc` (10.59.53.200) | `pi-gateway` (10.59.53.30) | `ping -c 5 10.59.53.30` | $< 2\text{ ms}$ (Ethernet) | 0% packet loss |
 | `attacker-pc` (10.59.53.200) | `esp32-node01` (10.59.53.x (DHCP)) | `ping -c 5 10.59.53.x (DHCP)` | $< 25\text{ ms}$ (Wi-Fi) | 0% packet loss |
-| `pi-gateway` (10.59.53.221) | `esp32-node01` (10.59.53.x (DHCP)) | `ping -c 5 10.59.53.x (DHCP)` | $< 25\text{ ms}$ (Wi-Fi) | 0% packet loss |
+| `pi-gateway` (10.59.53.30) | `esp32-node01` (10.59.53.x (DHCP)) | `ping -c 5 10.59.53.x (DHCP)` | $< 25\text{ ms}$ (Wi-Fi) | 0% packet loss |
 
 ---
 
@@ -488,7 +488,7 @@ nmcli connection show
 # 2. Configure static IP on eth0 (Ethernet interface)
 sudo nmcli connection modify "Wired connection 1" \
     ipv4.method manual \
-    ipv4.addresses 10.59.53.221/24 \
+    ipv4.addresses 10.59.53.30/24 \
     ipv4.gateway 10.59.53.1 \
     ipv4.dns "10.59.53.1 8.8.8.8"
 
@@ -502,13 +502,13 @@ Append the following block to the bottom of `/etc/dhcpcd.conf`:
 ```ini
 # Smart Grid Gateway Static IP Configuration
 interface eth0
-static ip_address=10.59.53.221/24
+static ip_address=10.59.53.30/24
 static routers=10.59.53.1
 static domain_name_servers=10.59.53.1 8.8.8.8
 
 # If using Wi-Fi (wlan0) instead of Ethernet:
 # interface wlan0
-# static ip_address=10.59.53.221/24
+# static ip_address=10.59.53.30/24
 # static routers=10.59.53.1
 # static domain_name_servers=10.59.53.1 8.8.8.8
 ```
@@ -596,7 +596,7 @@ ip addr show eth0
 | **Power shows negative or power factor reads `0.00`** | CT secondary leads connected in reverse polarity. | Swap CT-1 and CT-2 terminal leads. | PZEM v3.0 automatically handles bidirectional power, but reversing the CT leads ensures positive quadrant power flow alignment. |
 | **ESP32 continuously reboots (Brownout detector triggered)** | 1. Insufficient current from PC USB port when ESP32 activates Wi-Fi radio (~500mA transient spikes).<br>2. Long/low-quality USB cable causing $V_{\text{drop}}$. | Observe Serial Monitor at 115200 baud for: `Brownout detector was triggered`. | 1. Connect ESP32 to a powered USB 3.0 hub or dedicated $5\text{ V} / 2\text{ A}$ power adapter.<br>2. Solder a $100\,\mu\text{F}$ electrolytic capacitor across ESP32 `VIN` and `GND`.<br>3. Replace USB cable with high-gauge short cable. |
 | **ESP32 fails to connect to Wi-Fi (`WL_NO_SSID_AVAIL` / Timeout)** | 1. Router is operating solely on 5 GHz band.<br>2. SSID/Password mismatch.<br>3. Static IP conflict with another host. | 1. Check router Wi-Fi settings for 2.4 GHz band broadcast.<br>2. Check serial monitor error log. | 1. ESP32 hardware **only supports 2.4 GHz** (802.11 b/g/n). Enable a dedicated 2.4 GHz SSID on the router.<br>2. Verify WPA2 credentials in firmware.<br>3. Check router client table for IP collision at `10.59.53.x (DHCP)`. |
-| **Raspberry Pi Mosquitto rejects connection (`Connection refused` or drops)** | Mosquitto 2.0+ default security prevents remote unauthenticated connections. | Run `mosquitto_sub -h 10.59.53.221 -t test` from external host. | Add `listener 1883 0.0.0.0` and `allow_anonymous true` to `/etc/mosquitto/conf.d/smartgrid.conf` and run `sudo systemctl restart mosquitto`. |
+| **Raspberry Pi Mosquitto rejects connection (`Connection refused` or drops)** | Mosquitto 2.0+ default security prevents remote unauthenticated connections. | Run `mosquitto_sub -h 10.59.53.30 -t test` from external host. | Add `listener 1883 0.0.0.0` and `allow_anonymous true` to `/etc/mosquitto/conf.d/smartgrid.conf` and run `sudo systemctl restart mosquitto`. |
 | **PZEM-004T optical LED does not blink** | 1. Blown inline 1A fuse on AC Live feed.<br>2. Optical coupler not receiving DC 5V bias. | 1. Multimeter continuity test on the 1A fuse.<br>2. Multimeter DC test on PZEM 5V/GND terminals. | 1. Replace blown fuse with $1\text{ A}$ fast-acting ceramic fuse.<br>2. Verify ESP32 VIN pin is supplying $\approx 5\text{ V}$ from USB bus. |
 | **High packet latency or drops during attack simulation** | ARP cache corruption on router or switch due to aggressive ARP spoofing. | Check `arp -n` on Raspberry Pi and laptop. | Isolate testbed to an unmanaged 4-port Gigabit switch or dedicated AP. Reduce ARP poison frequency from `100 Hz` to `2 Hz`. |
 

@@ -18,7 +18,7 @@ RESEARCH DISCLAIMER:
 
 WHAT THIS SCRIPT DOES:
     Phase A — CAPTURE: Sniff one legitimate MQTT PUBLISH packet from the real
-              ESP32 to the broker (10.59.53.221:1883).
+              ESP32 to the broker (10.59.53.30:1883).
     Phase B — REPLAY: Send that exact same packet over and over.
 
 WHY THIS IS DETECTABLE:
@@ -50,7 +50,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════
 
 ESP32_IP = "10.59.53.101"  # ESP32 uses DHCP — check Serial Monitor for actual IP and update this
-BROKER_IP = "10.59.53.221"
+BROKER_IP = "10.59.53.30"
 BROKER_PORT = 1883
 CAPTURE_TIMEOUT = 30  # seconds to wait for a legitimate packet
 

@@ -41,7 +41,7 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-BROKER_IP = "10.59.53.221"
+BROKER_IP = "10.59.53.30"
 BROKER_PORT = 1883
 CMD_TOPIC = "smartgrid/node01/cmd"
 ALERTS_TOPIC = "smartgrid/alerts"

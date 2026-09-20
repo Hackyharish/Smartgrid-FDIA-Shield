@@ -13,7 +13,7 @@ from pathlib import Path
 load_dotenv(Path(__file__).parent / '.env')
 
 # MQTT Configuration
-MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '10.59.53.221')
+MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '10.59.53.30')
 MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 MQTT_TOPIC_TELEMETRY = 'smartgrid/node01/telemetry'
 MQTT_TOPIC_CMD = 'smartgrid/node01/cmd'

@@ -34,7 +34,7 @@
 // ==============================================================================
 const char* WIFI_SSID = "HarishsPhone";
 const char* WIFI_PASS = "Podaapattiiii";
-const char* MQTT_SERVER = "10.59.53.221";
+const char* MQTT_SERVER = "10.59.53.30";
 const int MQTT_PORT = 1883;
 const char* NODE_ID = "node_01";
 const char* HMAC_SECRET_KEY = "smartgrid_secret_key_2025";

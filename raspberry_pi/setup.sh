@@ -25,7 +25,9 @@ fi
 
 echo -e "${GREEN}[PART A] Updating and Installing System Packages${NC}"
 apt-get update && apt-get upgrade -y
-apt-get install -y mosquitto mosquitto-clients python3 python3-pip python3-venv git sqlite3 tcpdump net-tools nmap libpcap-dev
+apt-get install -y mosquitto mosquitto-clients python3 python3-pip python3-venv \
+    python3-numpy python3-pandas python3-sklearn python3-matplotlib python3-seaborn \
+    git sqlite3 tcpdump net-tools nmap libpcap-dev
 
 echo -e "\n${GREEN}[PART B] Configuring Mosquitto${NC}"
 mkdir -p /var/log/mosquitto /var/lib/mosquitto
@@ -35,12 +37,6 @@ chown -R mosquitto:mosquitto /var/log/mosquitto /var/lib/mosquitto
 cat > /etc/mosquitto/conf.d/smartgrid.conf << 'EOF'
 listener 1883
 allow_anonymous true
-log_dest file /var/log/mosquitto/mosquitto.log
-log_type error
-log_type warning
-log_type notice
-log_type information
-connection_messages true
 EOF
 
 systemctl enable mosquitto
@@ -56,9 +52,9 @@ chown -R ${TARGET_USER}:${TARGET_USER} ${PROJECT_DIR}
 
 echo -e "\n${GREEN}[PART D] Setting up Python Virtual Environment${NC}"
 if [ ! -d "${PROJECT_DIR}/venv" ]; then
-    sudo -u ${TARGET_USER} python3 -m venv ${PROJECT_DIR}/venv
+    sudo -u ${TARGET_USER} python3 -m venv --system-site-packages ${PROJECT_DIR}/venv
 fi
-# Copy requirements if running from the source folder
+# Install remaining lightweight packages
 if [ -f "./requirements.txt" ]; then
     sudo -u ${TARGET_USER} ${PROJECT_DIR}/venv/bin/pip install -r ./requirements.txt
 else

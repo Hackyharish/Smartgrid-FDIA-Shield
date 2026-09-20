@@ -72,7 +72,7 @@ def print_banner():
     """Print the ASCII startup banner."""
     print("╔══════════════════════════════════════════════════╗")
     print("║  SmartGrid FDI + IP Spoof Detection Gateway      ║")
-    print(f"║  Node: {NODE_ID} | Broker: {MQTT_BROKER}:{MQTT_PORT}".ljust(51) + "║")
+    print(f"║  Node: {NODE_ID} | Broker: {MQTT_BROKER_IP}:{MQTT_PORT}".ljust(51) + "║")
     print(f"║  Expected ESP32 IP: {EXPECTED_NODE_IP}".ljust(51) + "║")
     print("╚══════════════════════════════════════════════════╝")
 

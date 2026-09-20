@@ -32,12 +32,12 @@ except ImportError:
 
 # Default known ESP32 fingerprint (FreeRTOS + lwIP TCP stack)
 DEFAULT_ESP32_FINGERPRINT = {
-    'ttl': 128,
-    'tcp_window': 5744,
+    'ttl': 64,
+    'tcp_window': 5500,
     'mss': 1460,
     'tcp_options': ['MSS'],  # lwIP doesn't send SACK/Timestamp by default
     'publish_interval_s': 5.0,
-    'interval_tolerance_s': 1.0,
+    'interval_tolerance_s': 1.5,
 }
 
 class NetworkFingerprint:
@@ -167,7 +167,8 @@ class NetworkFingerprint:
         
         # Fingerprint comparison scores
         ttl_match = (pkt_ttl == self.fingerprint['ttl'])
-        window_match = (pkt_window == self.fingerprint['tcp_window'])
+        # lwIP dynamically adjusts receive window depending on buffer state (~4000 to ~6500)
+        window_match = abs(pkt_window - self.fingerprint['tcp_window']) <= 1000
         
         # Options matching: check if observed options match known ESP32 options
         known_opts = set(self.fingerprint['tcp_options'])

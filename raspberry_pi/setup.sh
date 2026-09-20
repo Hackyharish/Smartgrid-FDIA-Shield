@@ -35,8 +35,6 @@ chown -R mosquitto:mosquitto /var/log/mosquitto /var/lib/mosquitto
 cat > /etc/mosquitto/conf.d/smartgrid.conf << 'EOF'
 listener 1883
 allow_anonymous true
-persistence true
-persistence_location /var/lib/mosquitto/
 log_dest file /var/log/mosquitto/mosquitto.log
 log_type error
 log_type warning

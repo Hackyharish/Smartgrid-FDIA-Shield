@@ -28,50 +28,61 @@ apt-get update && apt-get upgrade -y
 apt-get install -y mosquitto mosquitto-clients python3 python3-pip python3-venv git sqlite3 tcpdump net-tools nmap libpcap-dev
 
 echo -e "\n${GREEN}[PART B] Configuring Mosquitto${NC}"
+mkdir -p /var/log/mosquitto /var/lib/mosquitto
+touch /var/log/mosquitto/mosquitto.log
+chown -R mosquitto:mosquitto /var/log/mosquitto /var/lib/mosquitto
+
 cat > /etc/mosquitto/conf.d/smartgrid.conf << 'EOF'
-listener 1883 0.0.0.0
+listener 1883
 allow_anonymous true
 persistence true
 persistence_location /var/lib/mosquitto/
 log_dest file /var/log/mosquitto/mosquitto.log
-log_type error warning notice information
+log_type error
+log_type warning
+log_type notice
+log_type information
 connection_messages true
 EOF
 
 systemctl enable mosquitto
-systemctl restart mosquitto
+systemctl restart mosquitto || journalctl -u mosquitto.service -n 20 --no-pager
 
-echo -e "\n${GREEN}[PART C] Creating Project Directory Structure${NC}"
-mkdir -p /home/pi/smartgrid/{models,data,logs,results}
-chown -R pi:pi /home/pi/smartgrid
+TARGET_USER=${SUDO_USER:-$(id -un)}
+TARGET_HOME=$(eval echo "~$TARGET_USER")
+PROJECT_DIR="${TARGET_HOME}/smartgrid"
+
+echo -e "\n${GREEN}[PART C] Creating Project Directory Structure for user: ${TARGET_USER}${NC}"
+mkdir -p ${PROJECT_DIR}/{models,data,logs,results}
+chown -R ${TARGET_USER}:${TARGET_USER} ${PROJECT_DIR}
 
 echo -e "\n${GREEN}[PART D] Setting up Python Virtual Environment${NC}"
-if [ ! -d "/home/pi/smartgrid/venv" ]; then
-    sudo -u pi python3 -m venv /home/pi/smartgrid/venv
+if [ ! -d "${PROJECT_DIR}/venv" ]; then
+    sudo -u ${TARGET_USER} python3 -m venv ${PROJECT_DIR}/venv
 fi
 # Copy requirements if running from the source folder
 if [ -f "./requirements.txt" ]; then
-    sudo -u pi /home/pi/smartgrid/venv/bin/pip install -r ./requirements.txt
+    sudo -u ${TARGET_USER} ${PROJECT_DIR}/venv/bin/pip install -r ./requirements.txt
 else
     echo -e "${RED}requirements.txt not found in current directory. Skipping pip install.${NC}"
 fi
 
 echo -e "\n${GREEN}[PART E] Setting up Systemd Service${NC}"
-cat > /etc/systemd/system/smartgrid.service << 'EOF'
+cat > /etc/systemd/system/smartgrid.service << EOF
 [Unit]
 Description=SmartGrid FDI Detection Gateway
 After=network.target mosquitto.service
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/smartgrid
-ExecStart=/home/pi/smartgrid/venv/bin/python main.py
+User=${TARGET_USER}
+WorkingDirectory=${PROJECT_DIR}
+ExecStart=${PROJECT_DIR}/venv/bin/python main.py
 Restart=always
 RestartSec=5
 AmbientCapabilities=CAP_NET_RAW
-StandardOutput=append:/home/pi/smartgrid/logs/system.log
-StandardError=append:/home/pi/smartgrid/logs/system.log
+StandardOutput=append:${PROJECT_DIR}/logs/system.log
+StandardError=append:${PROJECT_DIR}/logs/system.log
 
 [Install]
 WantedBy=multi-user.target

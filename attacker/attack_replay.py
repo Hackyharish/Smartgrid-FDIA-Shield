@@ -77,24 +77,36 @@ def capture_legitimate_packet(timeout: int = CAPTURE_TIMEOUT):
     print(f"[CAPTURE] Timeout: {timeout}s")
     print("-" * 60)
     
-    # Method 1: Capture via MQTT subscription from broker (reliable over Wi-Fi)
-    if mqtt_sub:
+    # Method 1: Capture via MQTT client subscription from broker (reliable over Wi-Fi)
+    try:
+        import paho.mqtt.client as mqtt
+        import queue
+        print("[CAPTURE] Subscribing to MQTT broker to grab real ESP32 packet...")
+        msg_queue = queue.Queue()
+        
+        def on_msg(client, userdata, message):
+            msg_queue.put(message.payload.decode('utf-8', errors='ignore'))
+            
+        capture_client = mqtt.Client(client_id="replay_capture_agent")
+        capture_client.on_message = on_msg
+        capture_client.connect(BROKER_IP, BROKER_PORT, keepalive=60)
+        capture_client.subscribe(MQTT_TOPIC)
+        capture_client.loop_start()
+        
         try:
-            print("[CAPTURE] Subscribing to MQTT broker to grab real ESP32 packet...")
-            msg = mqtt_sub.simple(
-                MQTT_TOPIC,
-                hostname=BROKER_IP,
-                port=BROKER_PORT,
-                timeout=timeout
-            )
-            if msg:
-                payload_str = msg.payload.decode('utf-8', errors='ignore')
-                print(f"[CAPTURE] ✓ Captured legitimate MQTT packet from broker!")
-                print(f"[CAPTURE]   Size: {len(msg.payload)} bytes")
-                print(f"[CAPTURE]   Payload snippet: {payload_str[:80]}...")
-                return {"payload": payload_str, "scapy_pkt": None}
-        except Exception as e:
-            print(f"[CAPTURE] MQTT subscription capture attempt note: {e}")
+            payload_str = msg_queue.get(timeout=timeout)
+            capture_client.loop_stop()
+            capture_client.disconnect()
+            print(f"[CAPTURE] ✓ Captured legitimate MQTT packet from broker!")
+            print(f"[CAPTURE]   Size: {len(payload_str)} bytes")
+            print(f"[CAPTURE]   Payload snippet: {payload_str[:80]}...")
+            return {"payload": payload_str, "scapy_pkt": None}
+        except queue.Empty:
+            capture_client.loop_stop()
+            capture_client.disconnect()
+            print(f"[CAPTURE] MQTT wait timed out after {timeout}s.")
+    except Exception as e:
+        print(f"[CAPTURE] MQTT subscription capture attempt note: {e}")
     
     # Method 2: Scapy packet sniffing (fallback)
     if scapy_sniff:

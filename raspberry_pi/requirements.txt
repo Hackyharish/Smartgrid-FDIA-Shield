@@ -8,4 +8,5 @@ schedule>=1.2.0
 matplotlib>=3.6.0
 seaborn>=0.12.0
 scapy>=2.5.0
+influxdb>=5.3.1
 

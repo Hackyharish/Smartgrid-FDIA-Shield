@@ -180,7 +180,7 @@ class AttackManager:
         """Launch replay attack as subprocess."""
         print("\n--- Replay Attack Configuration ---")
         try:
-            duration = int(input("  Replay duration in seconds [60]: ").strip() or "60")
+            duration = int(input("  Duration in seconds [60]: ").strip() or "60")
             interval = float(input("  Replay interval in seconds [5.0]: ").strip() or "5.0")
             capture_timeout = int(input("  Capture timeout in seconds [30]: ").strip() or "30")
         except (ValueError, EOFError):
@@ -224,6 +224,63 @@ class AttackManager:
             
         except Exception as e:
             print(f"[ERROR] Failed to launch replay: {e}")
+    
+    def launch_dos(self):
+        """Launch DoS flood attack as subprocess."""
+        print("\n--- DoS Flood Attack Configuration ---")
+        try:
+            duration = int(input("  Duration in seconds [60]: ").strip() or "60")
+            threads = int(input("  Number of attack threads [10]: ").strip() or "10")
+            rate = int(input("  Messages/sec per thread [50]: ").strip() or "50")
+        except (ValueError, EOFError):
+            duration, threads, rate = 60, 10, 50
+        
+        script = SCRIPT_DIR / "attack_dos.py"
+        if not script.exists():
+            print(f"[ERROR] Script not found: {script}")
+            return
+        
+        cmd = [
+            sys.executable, str(script),
+            "--target", BROKER_IP,
+            "--port", str(BROKER_PORT),
+            "--duration", str(duration),
+            "--threads", str(threads),
+            "--rate", str(rate),
+        ]
+        
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                stdin=subprocess.PIPE
+            )
+            # Auto-confirm the "press ENTER" prompt
+            proc.stdin.write('\n')
+            proc.stdin.flush()
+            
+            self.active_attacks['DOS_FLOOD'] = {
+                'type': 'subprocess',
+                'process': proc,
+                'started': time.time(),
+                'duration': duration,
+                'pid': proc.pid
+            }
+            print(f"[ATTACK] DoS flood attack launched (PID: {proc.pid})")
+            print(f"[ATTACK] {threads} threads × {rate} msg/s = {threads * rate} msg/s total")
+            
+            import threading
+            def print_output():
+                for line in proc.stdout:
+                    print(f"  {line.rstrip()}")
+            t = threading.Thread(target=print_output, daemon=True)
+            t.start()
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to launch DoS attack: {e}")
     
     # ═══════════════════════════════════════════════════
     # ATTACK MANAGEMENT
@@ -322,9 +379,10 @@ def print_menu():
 ║  1. FDI via MQTT Command (ESP32 falsifies own readings)     ║
 ║  2. IP Spoofing Attack (forged source IP packets)           ║
 ║  3. Replay Attack (capture + replay)                        ║
-║  4. Stop All Attacks                                        ║
-║  5. Status (show running attacks)                           ║
-║  6. Exit                                                     ║
+║  4. DoS Flood Attack (MQTT message flood)                   ║
+║  5. Stop All Attacks                                        ║
+║  6. Status (show running attacks)                           ║
+║  7. Exit                                                     ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
@@ -345,7 +403,7 @@ def main():
         while True:
             print_menu()
             try:
-                choice = input("  Select option [1-6]: ").strip()
+                choice = input("  Select option [1-7]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
             
@@ -356,14 +414,16 @@ def main():
             elif choice == '3':
                 manager.launch_replay()
             elif choice == '4':
-                manager.stop_all_attacks()
+                manager.launch_dos()
             elif choice == '5':
-                manager.show_status()
+                manager.stop_all_attacks()
             elif choice == '6':
+                manager.show_status()
+            elif choice == '7':
                 print("\n[EXIT] Shutting down attack controller...")
                 break
             else:
-                print("[ERROR] Invalid option. Please select 1-6.")
+                print("[ERROR] Invalid option. Please select 1-7.")
             
             # Small pause for output to flush
             time.sleep(0.5)
@@ -377,3 +437,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

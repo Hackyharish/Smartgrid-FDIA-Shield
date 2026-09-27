@@ -94,6 +94,30 @@ IF_MODEL_PATH = Path(__file__).parent / 'models' / 'isolation_forest.pkl'
 # Results
 RESULTS_DIR = Path(__file__).parent / 'results'
 
+# ═══════════════════════════════════════════════════════
+# DoS Detection Settings
+# ═══════════════════════════════════════════════════════
+DOS_RATE_WINDOW_S = int(os.getenv('DOS_RATE_WINDOW_S', '10'))
+DOS_WARNING_RATE = int(os.getenv('DOS_WARNING_RATE', '10'))       # msg/s per IP
+DOS_CRITICAL_RATE = int(os.getenv('DOS_CRITICAL_RATE', '20'))     # msg/s per IP → block
+DOS_BLOCK_DURATION_S = int(os.getenv('DOS_BLOCK_DURATION_S', '300'))
+DOS_ENABLE_IPTABLES = os.getenv('DOS_ENABLE_IPTABLES', 'false').lower() in ('true', '1', 'yes')
+
+# ═══════════════════════════════════════════════════════
+# InfluxDB Settings (for Grafana dashboards)
+# ═══════════════════════════════════════════════════════
+INFLUXDB_HOST = os.getenv('INFLUXDB_HOST', 'localhost')
+INFLUXDB_PORT = int(os.getenv('INFLUXDB_PORT', '8086'))
+INFLUXDB_DATABASE = os.getenv('INFLUXDB_DATABASE', 'smartgrid')
+INFLUXDB_ENABLED = os.getenv('INFLUXDB_ENABLED', 'true').lower() in ('true', '1', 'yes')
+
+# ═══════════════════════════════════════════════════════
+# Digital Twin Settings
+# ═══════════════════════════════════════════════════════
+TWIN_NODE_ID = os.getenv('TWIN_NODE_ID', 'twin_01')
+TWIN_TOPIC = f'smartgrid/{TWIN_NODE_ID}/telemetry'
+TWIN_PUBLISH_INTERVAL_S = float(os.getenv('TWIN_PUBLISH_INTERVAL_S', '5.0'))
+
 # Ensure directories exist
 for d in [DB_PATH.parent, LOG_DIR, IF_MODEL_PATH.parent, RESULTS_DIR]:
     d.mkdir(parents=True, exist_ok=True)

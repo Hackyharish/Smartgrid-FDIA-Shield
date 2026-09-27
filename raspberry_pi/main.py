@@ -30,6 +30,8 @@ from fdi_detector import FDIDetector
 from data_recovery import DataRecovery
 from cloud_uploader import CloudUploader
 from alert_publisher import AlertPublisher
+from dos_detector import DoSDetector
+from influxdb_writer import InfluxDBWriter
 
 # Global flags and stats for shutdown
 shutdown_event = threading.Event()
@@ -37,7 +39,8 @@ stats = {
     'start_time': time.time(),
     'packets_processed': 0,
     'attacks_detected': 0,
-    'spoof_events': 0
+    'spoof_events': 0,
+    'dos_events': 0
 }
 
 def setup_logger():
@@ -106,12 +109,31 @@ def _print_status_line(payload, status, recovery):
         rv = recovery.get('recovered_voltage', 0) if recovery else 0
         print(f'[{ts}][{node}] V={v:.1f} I={i:.3f} P={p:.1f} | {status} | R_V={rv:.1f}')
 
-def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud):
+def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb):
     """Process a single telemetry payload through the security pipeline."""
     stats['packets_processed'] += 1
     
+    # Record message for DoS rate tracking
+    src_ip = payload.get('_src_ip', EXPECTED_NODE_IP)
+    dos_detector.record_message(src_ip)
+    
+    # Check if DoS detector has flagged this IP
+    dos_status = dos_detector.get_status()
+    if src_ip in dos_status.get('blocked_ips_time_remaining', {}):
+        stats['dos_events'] += 1
+        logger.warning(f"Dropping payload from DoS-blocked IP: {src_ip}")
+        influxdb.write_dos_event({
+            'src_ip': src_ip,
+            'event': 'BLOCKED_DROP',
+            'rate': dos_status['current_rates_msg_per_sec'].get(src_ip, 0),
+        })
+        return
+    
     # 1. Insert raw telemetry to DB
     telemetry_id = db.insert_raw_telemetry(payload)
+    
+    # Write raw telemetry to InfluxDB for Grafana
+    influxdb.write_telemetry(payload)
     
     # 2. HMAC check (extracted from payload)
     hmac_valid = payload.get('hmac_valid', True)
@@ -260,6 +282,9 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
         
     # Update latest telemetry & detection for Cloud Uploader
     cloud.update_data(payload, detection_result)
+    
+    # Write detection result to InfluxDB for Grafana
+    influxdb.write_detection(detection_result)
 
 def shutdown_handler(signum, frame):
     """Handle graceful shutdown signals."""
@@ -296,6 +321,14 @@ def main():
     cloud = CloudUploader(api_key=THINGSPEAK_WRITE_KEY, base_url=THINGSPEAK_BASE_URL, upload_interval_s=CLOUD_UPLOAD_INTERVAL_S)
     cloud.start()
     
+    logger.info("Initializing DoS Detector...")
+    dos_detector = DoSDetector()
+    dos_detector.start()
+    
+    logger.info("Initializing InfluxDB Writer...")
+    influxdb = InfluxDBWriter()
+    influxdb.start()
+    
     # Register shutdown handlers
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
@@ -307,7 +340,7 @@ def main():
             try:
                 # Wait for payload from MQTT subscriber
                 payload = subscriber.payload_queue.get(timeout=1.0)
-                process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud)
+                process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb)
             except queue.Empty:
                 continue
             except Exception as e:
@@ -322,6 +355,8 @@ def main():
         subscriber.stop()
         fingerprint.stop()
         cloud.stop()
+        dos_detector.stop()
+        influxdb.stop()
         
         uptime = time.time() - stats['start_time']
         
@@ -330,9 +365,11 @@ def main():
         logger.info(f"Packets processed: {stats['packets_processed']}")
         logger.info(f"Attacks detected: {stats['attacks_detected']}")
         logger.info(f"Spoof events confirmed: {stats['spoof_events']}")
+        logger.info(f"DoS events blocked: {stats['dos_events']}")
         logger.info("System safely stopped.")
         
         print("\nShutdown complete.")
 
 if __name__ == '__main__':
     main()
+

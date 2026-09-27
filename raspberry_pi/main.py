@@ -32,6 +32,7 @@ from cloud_uploader import CloudUploader
 from alert_publisher import AlertPublisher
 from dos_detector import DoSDetector
 from influxdb_writer import InfluxDBWriter
+from modbus_server import ModbusServer
 
 # Global flags and stats for shutdown
 shutdown_event = threading.Event()
@@ -92,24 +93,32 @@ def run_startup_assertions():
         logger.error(f"Startup check failed: {e}")
         sys.exit(1)
 
-def _print_status_line(payload, status, recovery):
-    """Print one-line status to console."""
+def _print_status_line(payload, status, recovery, detection=None):
+    """Print one-line status to console with PMU angle and WLS Bad Data status."""
     ts = datetime.now().strftime('%H:%M:%S')
     node = payload.get('node_id', '?')
     v = payload.get('voltage_V', 0)
     i = payload.get('current_A', 0)
     p = payload.get('power_W', 0)
     
+    extra = ""
+    if detection:
+        pmu = detection.get('synchrophasor_pmu', {})
+        delta = pmu.get('voltage_angle_deg', 0.0)
+        state_est = detection.get('state_estimation', {})
+        wls_flag = "WLS:BAD" if state_est.get('bad_data_detected') else "WLS:OK"
+        extra = f" | δ={delta:+.1f}° {wls_flag}"
+
     if status == 'NORMAL':
-        print(f'[{ts}][{node}] V={v:.1f} I={i:.3f} P={p:.1f} | NORMAL')
+        print(f'[{ts}][{node}] V={v:.1f} I={i:.3f} P={p:.1f}{extra} | NORMAL')
     elif status == 'SPOOF_CONFIRMED':
         rv = recovery.get('recovered_voltage', 0) if recovery else 0
-        print(f'[{ts}][{node}] HMAC=FAIL SPOOF=CONFIRMED | V={v:.1f}->R:{rv:.1f} | RECOVERED')
+        print(f'[{ts}][{node}] HMAC=FAIL SPOOF=CONFIRMED | V={v:.1f}->R:{rv:.1f}{extra} | RECOVERED')
     else:
         rv = recovery.get('recovered_voltage', 0) if recovery else 0
-        print(f'[{ts}][{node}] V={v:.1f} I={i:.3f} P={p:.1f} | {status} | R_V={rv:.1f}')
+        print(f'[{ts}][{node}] V={v:.1f} I={i:.3f} P={p:.1f} | {status} | R_V={rv:.1f}{extra}')
 
-def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb):
+def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb, modbus):
     """Process a single telemetry payload through the security pipeline."""
     stats['packets_processed'] += 1
     
@@ -210,7 +219,14 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             confidence=1.0,
         )
         
-        _print_status_line(payload, 'SPOOF_CONFIRMED', recovery_result)
+        # Update Modbus
+        modbus.update_registers(
+            telemetry=payload,
+            detection=detection_result,
+            state_est=None,
+            pmu=None
+        )
+        _print_status_line(payload, 'SPOOF_CONFIRMED', recovery_result, detection_result)
         return
     
     # 5. NORMAL PATH: Run full FDI detection
@@ -278,13 +294,21 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
                 confidence=detection_result.get('attack_confidence'),
             )
         
-        _print_status_line(payload, status, recovery_result)
+        _print_status_line(payload, status, recovery_result, detection_result)
         
     # Update latest telemetry & detection for Cloud Uploader
     cloud.update_data(payload, detection_result)
     
     # Write detection result to InfluxDB for Grafana
     influxdb.write_detection(detection_result)
+
+    # Update Modbus industrial registers & SCADA breaker
+    modbus.update_registers(
+        telemetry=payload,
+        detection=detection_result,
+        state_est=detection_result.get('state_estimation'),
+        pmu=detection_result.get('synchrophasor_pmu')
+    )
 
 def shutdown_handler(signum, frame):
     """Handle graceful shutdown signals."""
@@ -329,6 +353,10 @@ def main():
     influxdb = InfluxDBWriter()
     influxdb.start()
     
+    logger.info("Initializing Modbus TCP Server...")
+    modbus = ModbusServer(host=MODBUS_HOST, port=MODBUS_PORT)
+    modbus.start()
+    
     # Register shutdown handlers
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
@@ -340,7 +368,7 @@ def main():
             try:
                 # Wait for payload from MQTT subscriber
                 payload = subscriber.payload_queue.get(timeout=1.0)
-                process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb)
+                process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb, modbus)
             except queue.Empty:
                 continue
             except Exception as e:
@@ -357,6 +385,7 @@ def main():
         cloud.stop()
         dos_detector.stop()
         influxdb.stop()
+        modbus.stop()
         
         uptime = time.time() - stats['start_time']
         

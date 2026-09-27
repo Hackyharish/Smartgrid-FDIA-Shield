@@ -145,16 +145,32 @@ class InfluxDBWriter:
 
     def write_telemetry(self, payload: Dict[str, Any]):
         """Write raw sensor telemetry."""
-        if 'node_id' not in payload:
-            return
+        node_id = payload.get('node_id', 'node_01')
             
         fields = {}
-        for k in ['voltage', 'current', 'power', 'energy', 'frequency', 'pf']:
-            if k in payload:
-                try:
-                    fields[k] = float(payload[k])
-                except (ValueError, TypeError):
-                    pass
+        v = payload.get('voltage_V', payload.get('voltage', None))
+        if v is not None:
+            fields['voltage'] = float(v)
+
+        i = payload.get('current_A', payload.get('current', None))
+        if i is not None:
+            fields['current'] = float(i)
+
+        p = payload.get('power_W', payload.get('power', None))
+        if p is not None:
+            fields['power'] = float(p)
+
+        e = payload.get('energy_Wh', payload.get('energy_kWh', payload.get('energy', None)))
+        if e is not None:
+            fields['energy'] = float(e)
+
+        f = payload.get('frequency_Hz', payload.get('frequency', None))
+        if f is not None:
+            fields['frequency'] = float(f)
+
+        pf = payload.get('power_factor', payload.get('pf', None))
+        if pf is not None:
+            fields['pf'] = float(pf)
 
         if not fields:
             return
@@ -162,32 +178,46 @@ class InfluxDBWriter:
         point = {
             "measurement": "telemetry",
             "tags": {
-                "node_id": payload['node_id']
+                "node_id": node_id
             },
             "fields": fields
         }
         self._enqueue(point)
 
     def write_detection(self, detection_result: Dict[str, Any]):
-        """Write FDI detection results."""
-        if 'node_id' not in detection_result:
-            return
+        """Write FDI detection results with WLS State Estimation and PMU metrics."""
+        node_id = detection_result.get('node_id', 'node_01')
             
         fields = {
             "attack_confidence": float(detection_result.get('attack_confidence', 0.0)),
             "status": str(detection_result.get('status', 'NORMAL')),
             "attack_type": str(detection_result.get('attack_type', 'none')),
+            "score_physics": float(detection_result.get('physics_score', 0.0)),
+            "score_zscore": float(detection_result.get('z_score_normalized', 0.0)),
+            "score_ml": float(detection_result.get('ml_score', 0.0)),
+            "score_hmac": float(detection_result.get('hmac_score', 0.0)),
+            "score_fingerprint": float(detection_result.get('fingerprint_score', 0.0)),
         }
-        
-        scores = detection_result.get('scores', {})
-        for k in ['physics', 'zscore', 'ml', 'hmac', 'fingerprint']:
-            if k in scores:
-                fields[f"score_{k}"] = float(scores[k])
+
+        # WLS State Estimation fields
+        state_est = detection_result.get('state_estimation')
+        if state_est:
+            fields["wls_chi_square"] = float(state_est.get('chi_square_stat', 0.0))
+            fields["wls_max_residual"] = float(state_est.get('max_normalized_residual', 0.0))
+            fields["wls_bad_data"] = 1.0 if state_est.get('bad_data_detected') else 0.0
+            fields["wls_estimated_v"] = float(state_est.get('estimated_voltage', 0.0))
+
+        # Synchrophasor PMU fields
+        pmu = detection_result.get('synchrophasor_pmu')
+        if pmu:
+            fields["pmu_phase_angle_deg"] = float(pmu.get('voltage_angle_deg', 0.0))
+            fields["pmu_rocof_Hz_s"] = float(pmu.get('rocof_Hz_s', 0.0))
+            fields["pmu_tve_pct"] = float(pmu.get('total_vector_error_pct', 0.0))
                 
         point = {
             "measurement": "detection",
             "tags": {
-                "node_id": detection_result['node_id']
+                "node_id": node_id
             },
             "fields": fields
         }

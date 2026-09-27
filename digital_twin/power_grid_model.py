@@ -34,6 +34,9 @@ class PowerGridModel:
         self.energy_wh = 0.0
         self.frequency_hz = nominal_frequency
         self.power_factor = 0.95
+        self.phase_angle_deg = 0.0
+        self.rocof_hz_s = 0.0
+        self.last_freq = nominal_frequency
         
         # Faults
         self.faults = {
@@ -80,21 +83,33 @@ class PowerGridModel:
         if self.faults['line_fault']:
             v_source *= 0.6 # Sag
             
-        # Simplified power flow: I = P / (V * PF)
+        # Power flow calculation:
+        # V_drop = I * Z_line, Power angle delta ≈ (P * X) / (V1 * V2)
         approx_i = load_w / (v_source * self.power_factor)
         v_drop = approx_i * self.z_line
         
         self.voltage_v = v_source - v_drop
         self.current_a = load_w / (self.voltage_v * self.power_factor)
         self.power_w = self.voltage_v * self.current_a * self.power_factor
+        
+        # Rate of Change of Frequency (ROCOF)
+        self.rocof_hz_s = (freq - self.last_freq) / max(0.001, dt)
+        self.last_freq = freq
         self.frequency_hz = freq
+
+        # Synchrophasor phase angle (load power angle delta in degrees)
+        # delta ≈ - (P * X_line) / (V_nom^2) * (180 / pi)
+        x_line = 0.08  # inductive line reactance
+        angle_rad = - (self.power_w * x_line) / (self.nominal_voltage ** 2)
+        self.phase_angle_deg = math.degrees(angle_rad)
         
         # Apply noise
         self.voltage_v = self._apply_noise(self.voltage_v)
         self.current_a = self._apply_noise(self.current_a)
         self.power_w = self._apply_noise(self.power_w)
-        self.frequency_hz = self._apply_noise(self.frequency_hz)
+        self.frequency_hz = self._apply_noise(self.frequency_hz, 0.001)
         self.power_factor = self._apply_noise(self.power_factor, 0.001)
+        self.phase_angle_deg = self._apply_noise(self.phase_angle_deg, 0.01)
         
         # Update energy
         self.energy_wh += (self.power_w * (dt / 3600.0))
@@ -104,9 +119,11 @@ class PowerGridModel:
     def get_readings(self):
         return {
             'voltage_V': round(self.voltage_v, 2),
-            'current_A': round(self.current_a, 2),
+            'current_A': round(self.current_a, 4),
             'power_W': round(self.power_w, 2),
             'energy_Wh': round(self.energy_wh, 2),
-            'frequency_Hz': round(self.frequency_hz, 2),
-            'power_factor': round(self.power_factor, 2)
+            'frequency_Hz': round(self.frequency_hz, 4),
+            'power_factor': round(self.power_factor, 3),
+            'phase_angle_deg': round(self.phase_angle_deg, 3),
+            'rocof_Hz_s': round(self.rocof_hz_s, 4),
         }

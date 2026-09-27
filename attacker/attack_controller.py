@@ -282,6 +282,18 @@ class AttackManager:
         except Exception as e:
             print(f"[ERROR] Failed to launch DoS attack: {e}")
     
+    def launch_modbus_attack(self):
+        """Launch Modbus TCP attack interactive console."""
+        script = SCRIPT_DIR / "attack_modbus.py"
+        if not script.exists():
+            print(f"[ERROR] Script not found: {script}")
+            return
+        cmd = [sys.executable, str(script), "--target", BROKER_IP, "--port", "5020"]
+        try:
+            subprocess.run(cmd)
+        except Exception as e:
+            print(f"[ERROR] Failed to run Modbus attack: {e}")
+
     # ═══════════════════════════════════════════════════
     # ATTACK MANAGEMENT
     # ═══════════════════════════════════════════════════
@@ -380,9 +392,10 @@ def print_menu():
 ║  2. IP Spoofing Attack (forged source IP packets)           ║
 ║  3. Replay Attack (capture + replay)                        ║
 ║  4. DoS Flood Attack (MQTT message flood)                   ║
-║  5. Stop All Attacks                                        ║
-║  6. Status (show running attacks)                           ║
-║  7. Exit                                                     ║
+║  5. Modbus TCP Attack (SCADA Recon & Breaker Trip)          ║
+║  6. Stop All Attacks                                        ║
+║  7. Status (show running attacks)                           ║
+║  8. Exit                                                     ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
@@ -403,7 +416,7 @@ def main():
         while True:
             print_menu()
             try:
-                choice = input("  Select option [1-7]: ").strip()
+                choice = input("  Select option [1-8]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
             
@@ -416,14 +429,16 @@ def main():
             elif choice == '4':
                 manager.launch_dos()
             elif choice == '5':
-                manager.stop_all_attacks()
+                manager.launch_modbus_attack()
             elif choice == '6':
-                manager.show_status()
+                manager.stop_all_attacks()
             elif choice == '7':
+                manager.show_status()
+            elif choice == '8':
                 print("\n[EXIT] Shutting down attack controller...")
                 break
             else:
-                print("[ERROR] Invalid option. Please select 1-7.")
+                print("[ERROR] Invalid option. Please select 1-8.")
             
             # Small pause for output to flush
             time.sleep(0.5)
@@ -437,4 +452,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

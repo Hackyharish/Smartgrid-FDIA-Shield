@@ -118,6 +118,19 @@ TWIN_NODE_ID = os.getenv('TWIN_NODE_ID', 'twin_01')
 TWIN_TOPIC = f'smartgrid/{TWIN_NODE_ID}/telemetry'
 TWIN_PUBLISH_INTERVAL_S = float(os.getenv('TWIN_PUBLISH_INTERVAL_S', '5.0'))
 
+# ═══════════════════════════════════════════════════════
+# Industrial Modbus TCP Settings (SCADA Interface)
+# ═══════════════════════════════════════════════════════
+MODBUS_ENABLED = os.getenv('MODBUS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+MODBUS_HOST = os.getenv('MODBUS_HOST', '0.0.0.0')
+MODBUS_PORT = int(os.getenv('MODBUS_PORT', '5020'))
+
+# ═══════════════════════════════════════════════════════
+# WLS State Estimation & Virtual PMU Settings
+# ═══════════════════════════════════════════════════════
+WLS_CHI2_THRESHOLD = float(os.getenv('WLS_CHI2_THRESHOLD', '11.34'))  # alpha=0.01, 3 DOF
+PMU_REPORT_RATE_HZ = float(os.getenv('PMU_REPORT_RATE_HZ', '10.0'))   # 100ms sub-second stream
+
 # Ensure directories exist
 for d in [DB_PATH.parent, LOG_DIR, IF_MODEL_PATH.parent, RESULTS_DIR]:
     d.mkdir(parents=True, exist_ok=True)

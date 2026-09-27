@@ -32,6 +32,9 @@ try:
 except ImportError:
     SKLEARN_AVAILABLE = False
 
+from state_estimator import StateEstimator
+from virtual_pmu import VirtualPMUProcessor
+
 logger = logging.getLogger(__name__)
 
 class FDIDetector:
@@ -87,6 +90,10 @@ class FDIDetector:
         self.frequency_bounds = (49.0, 51.0)
         self.pf_bounds = (0.0, 1.0)
         self.power_tolerance_pct = 10.0
+        
+        # Industrial State Estimator & Synchrophasor PMU
+        self.state_estimator = StateEstimator()
+        self.virtual_pmu = VirtualPMUProcessor()
 
     def detect(self, payload: dict, hmac_score: float = 0.0, 
                fingerprint_score: float = 0.0, fingerprint_verdict: str = 'UNKNOWN') -> dict:
@@ -101,8 +108,8 @@ class FDIDetector:
         Returns:
             Detection result dict with all scores, status, and attack_type
         """
-        # 1. Physics consistency check
-        physics_score, physics_violations = self._physics_check(payload)
+        # 1. Physics consistency & WLS / PMU check
+        physics_score, physics_violations, state_est, pmu = self._physics_check(payload)
         
         # 2. Statistical Z-score + EWMA
         z_score_norm = self._statistical_check(payload)
@@ -158,6 +165,8 @@ class FDIDetector:
         if physics_violations.get('frequency_oob'): compromised.append('frequency_Hz')
         if physics_violations.get('pf_oob'): compromised.append('power_factor')
         if physics_violations.get('energy_decrease'): compromised.append('energy_kWh')
+        if state_est.get('compromised_measurement') and state_est['compromised_measurement'] not in compromised:
+            compromised.append(state_est['compromised_measurement'])
         
         return {
             'node_id': payload.get('node_id', self.node_id),
@@ -173,10 +182,12 @@ class FDIDetector:
             'physics_violations': physics_violations,
             'compromised_parameters': compromised,
             'replay_detected': replay_detected,
+            'state_estimation': state_est,
+            'synchrophasor_pmu': pmu,
         }
 
-    def _physics_check(self, payload) -> Tuple[float, dict]:
-        """Physics-based consistency validation.
+    def _physics_check(self, payload) -> Tuple[float, dict, dict, dict]:
+        """Physics-based consistency validation & WLS / Synchrophasor PMU check.
         
         Checks:
         1. Voltage within bounds [200V, 260V]
@@ -184,8 +195,10 @@ class FDIDetector:
         3. Power factor within [0, 1]
         4. P ≈ V × I × PF (within tolerance)
         5. Energy monotonically increasing (can't decrease)
+        6. AC WLS State Estimation residual & Chi-square Bad Data Detection
+        7. Virtual PMU Synchrophasor angle, TVE, and ROCOF consistency
         
-        Returns: (score 0.0-1.0, violations_dict)
+        Returns: (score 0.0-1.0, violations_dict, state_est_dict, pmu_dict)
         """
         score = 0.0
         violations = {}
@@ -225,8 +238,24 @@ class FDIDetector:
             if e < last_e:
                 violations['energy_decrease'] = True
                 score += 0.2
+
+        # 6. Industrial AC WLS State Estimation
+        state_est = self.state_estimator.estimate_state(payload)
+        if state_est.get('bad_data_detected'):
+            violations['wls_bad_data'] = True
+            violations['wls_chi2'] = state_est.get('chi_square_stat')
+            violations['wls_compromised'] = state_est.get('compromised_measurement')
+            score += state_est.get('residual_score', 0.5) * 0.4
+
+        # 7. Virtual PMU Synchrophasor & ROCOF
+        pmu = self.virtual_pmu.process_measurement(payload)
+        if pmu.get('phase_jump_detected') or pmu.get('rocof_violation') or not pmu.get('ieee_c37_118_compliant'):
+            violations['pmu_anomaly'] = True
+            violations['pmu_rocof'] = pmu.get('rocof_Hz_s')
+            violations['pmu_tve'] = pmu.get('total_vector_error_pct')
+            score += pmu.get('pmu_anomaly_score', 0.3) * 0.3
                 
-        return min(score, 1.0), violations
+        return min(score, 1.0), violations, state_est, pmu
 
     def _statistical_check(self, payload) -> float:
         """Z-score + EWMA anomaly detection."""

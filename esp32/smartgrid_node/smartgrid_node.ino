@@ -34,17 +34,17 @@
 // ==============================================================================
 const char* WIFI_SSID = "HarishsPhone";
 const char* WIFI_PASS = "Podaapattiiii";
-const char* MQTT_SERVER = "10.59.53.30";
+const char* MQTT_SERVER = "10.175.107.30";
 const int MQTT_PORT = 1883;
 const char* NODE_ID = "node_01";
 const char* HMAC_SECRET_KEY = "smartgrid_secret_key_2025";
 const int PUBLISH_INTERVAL_MS = 5000;
 
 // Static IP Configuration on Hotspot Subnet
-IPAddress staticIP(10, 59, 53, 251);
-IPAddress gateway(10, 59, 53, 1);
+IPAddress staticIP(10, 175, 107, 251);
+IPAddress gateway(10, 175, 107, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress dns(10, 59, 53, 1);
+IPAddress dns(10, 175, 107, 1);
 
 const char* MQTT_TOPIC_PUB = "smartgrid/node01/telemetry";
 const char* MQTT_TOPIC_SUB = "smartgrid/node01/cmd";

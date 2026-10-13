@@ -21,7 +21,7 @@ for p in env_paths:
         load_dotenv(p, override=True)
 
 # MQTT Configuration
-MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '10.59.53.30')
+MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '127.0.0.1')
 MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 MQTT_TOPIC_TELEMETRY = 'smartgrid/node01/telemetry'
 MQTT_TOPIC_CMD = 'smartgrid/node01/cmd'
@@ -29,7 +29,7 @@ MQTT_TOPIC_ALERTS = 'smartgrid/alerts'
 
 # Node Configuration
 NODE_ID = os.getenv('NODE_ID', 'node_01')
-EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '10.59.53.251')
+EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '10.175.107.251')
 
 # Security
 HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')

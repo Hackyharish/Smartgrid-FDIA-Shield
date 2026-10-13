@@ -30,6 +30,17 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Auto-elevate to root if run as non-root on Linux/Kali (required for Scapy raw sockets)
+if os.name != 'nt' and hasattr(os, 'geteuid') and os.geteuid() != 0:
+    print("[*] attack_controller requires root privileges for Scapy raw socket packet injection.")
+    print("[*] Re-launching with sudo...")
+    try:
+        os.execvp("sudo", ["sudo", "-E", sys.executable] + sys.argv)
+    except Exception as e:
+        print(f"[ERROR] Auto-elevation failed: {e}")
+        print("Please run manually: sudo python3 attack_controller.py")
+        sys.exit(1)
+
 try:
     import paho.mqtt.client as mqtt
 except ImportError:
@@ -139,7 +150,7 @@ class AttackManager:
             return
         
         cmd = [
-            "sudo", sys.executable, str(script),
+            sys.executable, str(script),
             "--duration", str(duration),
             "--interval", str(interval),
             "--voltage-scale", str(voltage_scale),
@@ -192,7 +203,7 @@ class AttackManager:
             return
         
         cmd = [
-            "sudo", sys.executable, str(script),
+            sys.executable, str(script),
             "--duration", str(duration),
             "--interval", str(interval),
             "--capture-timeout", str(capture_timeout),

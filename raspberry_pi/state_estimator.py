@@ -32,32 +32,24 @@ class StateEstimator:
     def __init__(self,
                  nominal_voltage: float = 230.0,
                  nominal_freq: float = 50.0,
-                 chi2_threshold: float = 11.34):  # chi2 for 3 DOF at alpha=0.01 is ~11.34
+                 chi2_threshold: float = 11.34):
         self.nominal_voltage = nominal_voltage
         self.nominal_freq = nominal_freq
         self.chi2_threshold = chi2_threshold
 
-        # Network branch parameters (per-unit or actual ohms)
-        # Line 1-2 (Substation to transformer): R12 = 0.05 ohm, X12 = 0.15 ohm
-        # Line 2-3 (Transformer to load bus): R23 = 0.08 ohm, X23 = 0.20 ohm
-        self.r12 = 0.05
-        self.x12 = 0.15
-        self.r23 = 0.08
-        self.x23 = 0.20
-
-        # Construct 2-port line series admittances: y = 1 / (r + j*x) = g + j*b
-        z12 = complex(self.r12, self.x12)
-        z23 = complex(self.r23, self.x23)
-        self.y12 = 1.0 / z12
-        self.y23 = 1.0 / z23
+        # Network branch parameters for equivalent testbed line (ohms)
+        # Typical lab feeder impedance: R ~ 0.05 ohm, X ~ 0.15 ohm
+        self.r_line = 0.05
+        self.x_line = 0.15
 
         # Measurement variances (standard deviations squared)
-        # sigma_v = 1.0 V, sigma_i = 0.02 A, sigma_p = 2.0 W, sigma_q = 2.0 VAR
+        # Tuned to real PZEM-004T precision tolerances:
+        # sigma_V = 2.0 V, sigma_I = 0.03 A, sigma_P = 3.0 W, sigma_Q = 4.0 VAR
         self.sigma = {
-            'voltage': 1.0,
-            'current': 0.02,
-            'power': 2.0,
-            'reactive_power': 2.5
+            'voltage': 2.0,
+            'current': 0.03,
+            'power': 3.0,
+            'reactive_power': 4.0
         }
 
         # Weight matrix diagonal entries: W_ii = 1 / (sigma_i^2)
@@ -68,93 +60,68 @@ class StateEstimator:
             1.0 / (self.sigma['reactive_power'] ** 2)
         ])
 
-        # State vector: x = [theta_3 (rad), V_3 (V)]
-        # Initial flat start: theta_3 = 0.0, V_3 = nominal_voltage
-        self.x_state = np.array([0.0, self.nominal_voltage])
-
-    def _calculate_power_flow(self, v3: float, theta3: float) -> Tuple[float, float, float]:
-        """
-        Calculates expected active power P3, reactive power Q3, and line current I23
-        at Bus 3 given Bus 3 voltage state (V3, theta3) and Bus 2 state.
-        Assumes Bus 2 voltage is intermediate between Slack (230V, 0 rad) and Bus 3.
-        """
-        # Intermediate bus 2 estimate
-        v2 = (self.nominal_voltage + v3) / 2.0
-        theta2 = theta3 / 2.0
-
-        v2_c = v2 * np.cos(theta2) + 1j * v2 * np.sin(theta2)
-        v3_c = v3 * np.cos(theta3) + 1j * v3 * np.sin(theta3)
-
-        # Current into Bus 3 from Bus 2
-        i_branch = (v2_c - v3_c) * self.y23
-        i_mag = abs(i_branch)
-
-        # Complex power at Bus 3: S3 = V3 * conj(I_into_3)
-        s3 = v3_c * np.conj(i_branch)
-        p3_exp = s3.real
-        q3_exp = s3.imag
-
-        return p3_exp, q3_exp, i_mag
+        # State vector: x = [V_hat (V), I_hat (A), phi_hat (rad)]
+        self.x_state = np.array([self.nominal_voltage, 0.44, 0.0])
 
     def _measurement_function_h(self, x: np.ndarray) -> np.ndarray:
         """
-        Computes the non-linear measurement vector h(x):
-        z_est = [V_3, I_3, P_3, Q_3]^T
+        Computes the non-linear AC power measurement vector h(x):
+        z_est = [V, I, P = V*I*cos(phi), Q = V*I*sin(phi)]^T
         """
-        theta3 = x[0]
-        v3 = x[1]
+        v = max(x[0], 1.0)
+        i = max(x[1], 0.0)
+        phi = x[2]
 
-        p3, q3, i3 = self._calculate_power_flow(v3, theta3)
-        return np.array([v3, i3, p3, q3], dtype=float)
+        p = v * i * np.cos(phi)
+        q = v * i * np.sin(phi)
+        return np.array([v, i, p, q], dtype=float)
 
-    def _compute_jacobian(self, x: np.ndarray, eps: float = 1e-5) -> np.ndarray:
+    def _compute_jacobian(self, x: np.ndarray) -> np.ndarray:
         """
-        Numerical Jacobian matrix H = dh/dx of size (4 x 2):
-        Row 0: dV3/dtheta3, dV3/dV3
-        Row 1: dI3/dtheta3, dI3/dV3
-        Row 2: dP3/dtheta3, dP3/dV3
-        Row 3: dQ3/dtheta3, dQ3/dV3
+        Analytical Jacobian matrix H = dh/dx of size (4 x 3):
+        x = [V, I, phi]
+        Row 0 (V): [1,                0,                0]
+        Row 1 (I): [0,                1,                0]
+        Row 2 (P): [I*cos(phi),       V*cos(phi),      -V*I*sin(phi)]
+        Row 3 (Q): [I*sin(phi),       V*sin(phi),       V*I*cos(phi)]
         """
-        h0 = self._measurement_function_h(x)
-        H = np.zeros((4, 2))
+        v = max(x[0], 1.0)
+        i = max(x[1], 0.0)
+        phi = x[2]
 
-        for j in range(2):
-            x_step = x.copy()
-            x_step[j] += eps
-            h_step = self._measurement_function_h(x_step)
-            H[:, j] = (h_step - h0) / eps
-
+        H = np.array([
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [i * np.cos(phi), v * np.cos(phi), -v * i * np.sin(phi)],
+            [i * np.sin(phi), v * np.sin(phi),  v * i * np.cos(phi)]
+        ], dtype=float)
         return H
 
     def estimate_state(self, telemetry: Dict[str, Any], max_iter: int = 10, tol: float = 1e-4) -> Dict[str, Any]:
         """
-        Executes Gauss-Newton WLS State Estimation and Chi-Square Bad Data Detection.
-
-        Args:
-            telemetry: Dict with keys: voltage_V, current_A, power_W, power_factor
-        Returns:
-            Dict containing estimated states, residuals, Chi-square statistic,
-            and Bad Data Detection verdict.
+        Executes Gauss-Newton AC WLS State Estimation and Chi-Square Bad Data Detection.
+        Validates real-time AC physical consistency across V, I, P, and Q.
         """
         v_meas = float(telemetry.get('voltage_V', telemetry.get('voltage_v', self.nominal_voltage)))
-        i_meas = float(telemetry.get('current_A', telemetry.get('current_a', 0.26)))
-        p_meas = float(telemetry.get('power_W', telemetry.get('power_w', 60.0)))
-        pf = float(telemetry.get('power_factor', 0.99))
+        i_meas = float(telemetry.get('current_A', telemetry.get('current_a', 0.44)))
+        p_meas = float(telemetry.get('power_W', telemetry.get('power_w', 100.0)))
+        pf = float(telemetry.get('power_factor', 1.0))
 
         # Calculate reactive power Q = P * tan(acos(pf))
         pf_clamped = max(-1.0, min(1.0, pf))
-        sin_phi = np.sqrt(max(0.0, 1.0 - pf_clamped ** 2))
+        phi_meas = float(np.arccos(pf_clamped))
+        sin_phi = np.sin(phi_meas)
         q_meas = p_meas * (sin_phi / max(pf_clamped, 0.01))
 
         # Measurement vector z = [V, I, P, Q]^T
         z = np.array([v_meas, i_meas, p_meas, q_meas], dtype=float)
 
-        # Weight matrix W (diagonal 4x4)
+        # Weight and Covariance matrices
         W = np.diag(self.weights)
-        R_cov = np.diag(1.0 / self.weights)  # Covariance matrix R
+        R_cov = np.diag(1.0 / self.weights)
 
-        # Flat start state x = [theta_3 = 0, V_3 = measured voltage]
-        x = np.array([0.0, v_meas], dtype=float)
+        # Flat / measurement start: x = [V_meas, I_meas, phi_meas]
+        x = np.array([max(v_meas, 1.0), max(i_meas, 0.0), phi_meas], dtype=float)
         converged = False
         iterations = 0
 
@@ -164,12 +131,9 @@ class StateEstimator:
             r = z - h_x
 
             H = self._compute_jacobian(x)
-
-            # Gain matrix G = H^T * W * H (2 x 2)
-            G = H.T @ W @ H
+            G = H.T @ W @ H  # Gain matrix (3 x 3)
 
             try:
-                # Solve normal equation G * delta_x = H^T * W * r
                 delta_x = np.linalg.solve(G, H.T @ W @ r)
             except np.linalg.LinAlgError:
                 delta_x = np.linalg.pinv(G) @ (H.T @ W @ r)
@@ -180,22 +144,28 @@ class StateEstimator:
                 converged = True
                 break
 
-        # Store converged state
         self.x_state = x
-        theta_est = float(x[0])
-        v_est = float(x[1])
+        v_est = float(x[0])
+        i_est = float(x[1])
+        phi_est = float(x[2])
 
-        # Final residual vector: r = z - h(x_hat)
+        # Residual vector: r = z - h(x_hat)
         h_final = self._measurement_function_h(x)
         residual = z - h_final
 
-        # Chi-square objective function J(x_hat) = sum((z_i - h_i)^2 / sigma_i^2)
+        # Chi-square test statistic: J(x_hat) = sum((z_i - h_i)^2 / sigma_i^2)
         chi2_stat = float(np.sum(self.weights * (residual ** 2)))
+
+        # Feeder synchrophasor power angle delta (relative to upstream feeder)
+        # delta ~ -(I * X * cos(phi) / V) in radians
+        delta_rad = -(i_est * self.x_line * np.cos(phi_est)) / max(v_est, 10.0)
+        delta_deg = float(np.degrees(delta_rad))
 
         # Residual covariance matrix: Omega = R - H * (H^T * W * H)^(-1) * H^T
         try:
-            G_inv = np.linalg.inv(H.T @ W @ H)
-            Omega = R_cov - H @ G_inv @ H.T
+            H_final = self._compute_jacobian(x)
+            G_inv = np.linalg.inv(H_final.T @ W @ H_final)
+            Omega = R_cov - H_final @ G_inv @ H_final.T
             diag_omega = np.maximum(np.diag(Omega), 1e-6)
             normalized_residuals = np.abs(residual) / np.sqrt(diag_omega)
         except Exception:
@@ -206,18 +176,18 @@ class StateEstimator:
         max_rn = float(normalized_residuals[max_rn_idx])
         most_compromised = param_names[max_rn_idx]
 
-        # Bad data hypothesis test (Chi-Square test & Largest Normalized Residual)
+        # Bad data hypothesis test
         bad_data_detected = bool(chi2_stat > self.chi2_threshold or max_rn > 3.0)
 
         # Scale residual score between 0.0 and 1.0 for fusion
-        # A chi2_stat of 0 gives 0.0, chi2_stat >= chi2_threshold gives 1.0
         residual_score = float(np.clip(chi2_stat / (self.chi2_threshold * 1.5), 0.0, 1.0))
 
         return {
             'converged': converged,
             'iterations': iterations,
             'estimated_voltage': round(v_est, 2),
-            'estimated_angle_deg': round(float(np.degrees(theta_est)), 4),
+            'estimated_current': round(i_est, 4),
+            'estimated_angle_deg': round(delta_deg, 4),
             'chi_square_stat': round(chi2_stat, 3),
             'chi_square_threshold': round(self.chi2_threshold, 2),
             'bad_data_detected': bad_data_detected,

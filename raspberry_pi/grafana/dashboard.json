@@ -165,13 +165,35 @@
       "targets": [
         {
           "measurement": "detection",
-          "query": "SELECT last(\"status\") FROM \"detection\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+          "query": "SELECT last(\"status_code\") FROM \"detection\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
           "rawQuery": true,
           "refId": "A"
         }
       ],
       "title": "Detection Status",
       "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "green", "index": 0, "text": "NORMAL" },
+                "1": { "color": "yellow", "index": 1, "text": "SUSPICIOUS" },
+                "2": { "color": "red", "index": 2, "text": "ATTACK_DETECTED" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        }
+      },
       "options": {
         "colorMode": "background",
         "textMode": "auto"

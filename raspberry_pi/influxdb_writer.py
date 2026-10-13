@@ -187,10 +187,13 @@ class InfluxDBWriter:
     def write_detection(self, detection_result: Dict[str, Any]):
         """Write FDI detection results with WLS State Estimation and PMU metrics."""
         node_id = detection_result.get('node_id', 'node_01')
+        status_str = str(detection_result.get('status', 'NORMAL'))
+        status_code = 0 if status_str == 'NORMAL' else (1 if status_str == 'SUSPICIOUS' else 2)
             
         fields = {
             "attack_confidence": float(detection_result.get('attack_confidence', 0.0)),
-            "status": str(detection_result.get('status', 'NORMAL')),
+            "status": status_str,
+            "status_code": int(status_code),
             "attack_type": str(detection_result.get('attack_type', 'none')),
             "score_physics": float(detection_result.get('physics_score', 0.0)),
             "score_zscore": float(detection_result.get('z_score_normalized', 0.0)),
@@ -217,7 +220,9 @@ class InfluxDBWriter:
         point = {
             "measurement": "detection",
             "tags": {
-                "node_id": node_id
+                "node_id": node_id,
+                "status_tag": status_str,
+                "attack_type_tag": str(detection_result.get('attack_type', 'none'))
             },
             "fields": fields
         }

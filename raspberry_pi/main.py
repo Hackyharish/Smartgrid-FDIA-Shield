@@ -138,11 +138,8 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
         })
         return
     
-    # 1. Insert raw telemetry to DB
+    # 1. Insert raw telemetry to DB (audit trail)
     telemetry_id = db.insert_raw_telemetry(payload)
-    
-    # Write raw telemetry to InfluxDB for Grafana
-    influxdb.write_telemetry(payload)
     
     # 2. HMAC check (extracted from payload)
     hmac_valid = payload.get('hmac_valid', True)
@@ -197,9 +194,9 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             detection_id=detection_id,
             node_id=payload.get('node_id', NODE_ID),
             timestamp=payload.get('timestamp', int(time.time())),
-            voltage=recovery_result.get('recovered_voltage', 0),
-            current=recovery_result.get('recovered_current', 0),
-            power=recovery_result.get('recovered_power', 0),
+            voltage=recovery_result.get('recovered_voltage', 230.0),
+            current=recovery_result.get('recovered_current', 0.0),
+            power=recovery_result.get('recovered_power', 0.0),
             energy=payload.get('energy_Wh', 0),
             frequency=payload.get('frequency_Hz', 50.0),
             pf=payload.get('power_factor', 1.0),
@@ -208,6 +205,13 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             recovery_confidence=recovery_result.get('recovery_confidence'),
         )
         
+        # Build clean recovered payload for external sinks
+        clean_payload = payload.copy()
+        clean_payload['voltage_V'] = recovery_result.get('recovered_voltage', 230.0)
+        clean_payload['current_A'] = recovery_result.get('recovered_current', 0.0)
+        clean_payload['power_W'] = recovery_result.get('recovered_power', 0.0)
+        clean_payload['data_source'] = 'RECOVERED'
+
         # Alert
         alert_pub.publish_alert(detection_result)
         db.insert_alert(
@@ -219,9 +223,12 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             confidence=1.0,
         )
         
-        # Update Modbus
+        # Update sinks with clean recovered data
+        influxdb.write_telemetry(clean_payload)
+        influxdb.write_detection(detection_result)
+        cloud.update_data(clean_payload, detection_result)
         modbus.update_registers(
-            telemetry=payload,
+            telemetry=clean_payload,
             detection=detection_result,
             state_est=None,
             pmu=None
@@ -258,7 +265,9 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
         )
         # Update recovery history with verified reading
         recovery.add_verified_reading(payload)
-        _print_status_line(payload, 'NORMAL', None)
+        clean_payload = payload.copy()
+        clean_payload['data_source'] = 'ORIGINAL'
+        _print_status_line(payload, 'NORMAL', None, detection_result)
     
     else:  # SUSPICIOUS or ATTACK_DETECTED
         if status == 'ATTACK_DETECTED':
@@ -266,14 +275,19 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             
         recovery_result = recovery.recover(payload, detection_result)
         db.insert_recovery_log(recovery_result)
+
+        rec_v = recovery_result.get('recovered_voltage_V', recovery_result.get('recovered_voltage', 230.0))
+        rec_i = recovery_result.get('recovered_current_A', recovery_result.get('recovered_current', 0.0))
+        rec_p = recovery_result.get('recovered_power_W', recovery_result.get('recovered_power', 0.0))
+
         db.insert_verified_telemetry(
             telemetry_id=telemetry_id,
             detection_id=detection_id,
             node_id=payload.get('node_id', NODE_ID),
             timestamp=payload.get('timestamp', int(time.time())),
-            voltage=recovery_result.get('recovered_voltage', 0),
-            current=recovery_result.get('recovered_current', 0),
-            power=recovery_result.get('recovered_power', 0),
+            voltage=rec_v,
+            current=rec_i,
+            power=rec_p,
             energy=payload.get('energy_Wh', 0),
             frequency=payload.get('frequency_Hz', 50.0),
             pf=payload.get('power_factor', 1.0),
@@ -281,6 +295,12 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             recovery_strategy=recovery_result.get('strategy_used'),
             recovery_confidence=recovery_result.get('recovery_confidence'),
         )
+
+        clean_payload = payload.copy()
+        clean_payload['voltage_V'] = rec_v
+        clean_payload['current_A'] = rec_i
+        clean_payload['power_W'] = rec_p
+        clean_payload['data_source'] = 'RECOVERED'
         
         if status == 'ATTACK_DETECTED':
             alert_pub.publish_alert(detection_result)
@@ -296,15 +316,18 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
         
         _print_status_line(payload, status, recovery_result, detection_result)
         
-    # Update latest telemetry & detection for Cloud Uploader
-    cloud.update_data(payload, detection_result)
+    # Write verified clean/recovered telemetry to InfluxDB for Grafana
+    influxdb.write_telemetry(clean_payload)
+
+    # Update latest clean telemetry & detection for Cloud Uploader (ThingSpeak)
+    cloud.update_data(clean_payload, detection_result)
     
     # Write detection result to InfluxDB for Grafana
     influxdb.write_detection(detection_result)
 
-    # Update Modbus industrial registers & SCADA breaker
+    # Update Modbus industrial registers & SCADA breaker with clean/recovered values
     modbus.update_registers(
-        telemetry=payload,
+        telemetry=clean_payload,
         detection=detection_result,
         state_est=detection_result.get('state_estimation'),
         pmu=detection_result.get('synchrophasor_pmu')
@@ -332,6 +355,7 @@ def main():
     
     logger.info("Initializing Alert Publisher...")
     alert_pub = AlertPublisher(broker_ip=MQTT_BROKER_IP, broker_port=MQTT_PORT, alert_topic=MQTT_TOPIC_ALERTS)
+    alert_pub.start()
     
     logger.info("Initializing Network Fingerprint...")
     fingerprint = NetworkFingerprint(target_ip=EXPECTED_NODE_IP, broker_port=MQTT_PORT)
@@ -380,6 +404,7 @@ def main():
     finally:
         # Graceful Shutdown
         logger.info("Stopping system components...")
+        alert_pub.stop()
         subscriber.stop()
         fingerprint.stop()
         cloud.stop()

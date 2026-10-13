@@ -98,11 +98,23 @@ class DataRecovery:
             result['recovery_note'] = 'Unknown attack type. Kalman prediction used.'
         
         result['attack_type_context'] = attack_type
-        result['original_voltage'] = attack_payload.get('voltage_V')
-        result['original_current'] = attack_payload.get('current_A')
-        result['original_power'] = attack_payload.get('power_W')
+        result['original_voltage'] = attack_payload.get('voltage_V', attack_payload.get('voltage_v', 230.0))
+        result['original_current'] = attack_payload.get('current_A', attack_payload.get('current_a', 0.0))
+        result['original_power'] = attack_payload.get('power_W', attack_payload.get('power_w', 0.0))
         result['node_id'] = attack_payload.get('node_id', 'node_01')
         result['timestamp'] = result.get('timestamp', attack_payload.get('timestamp', int(time.time())))
+
+        # Standardize keys across strategies so both with and without _V/_A/_W exist
+        rv = result.get('recovered_voltage_V', result.get('recovered_voltage', 230.0))
+        ri = result.get('recovered_current_A', result.get('recovered_current', 0.0))
+        rp = result.get('recovered_power_W', result.get('recovered_power', 0.0))
+
+        result['recovered_voltage'] = round(float(rv), 2)
+        result['recovered_voltage_V'] = round(float(rv), 2)
+        result['recovered_current'] = round(float(ri), 4)
+        result['recovered_current_A'] = round(float(ri), 4)
+        result['recovered_power'] = round(float(rp), 2)
+        result['recovered_power_W'] = round(float(rp), 2)
         
         return result
 
@@ -119,14 +131,31 @@ class DataRecovery:
         
         if not history:
             return self._fallback_to_defaults()
+
+        def _get_ts(entry):
+            t = entry.get('timestamp')
+            if t is None:
+                return time.time()
+            if isinstance(t, (int, float)):
+                return float(t)
+            if isinstance(t, str):
+                try:
+                    return float(t)
+                except ValueError:
+                    try:
+                        from datetime import datetime
+                        return datetime.fromisoformat(t).timestamp()
+                    except Exception:
+                        return time.time()
+            return time.time()
             
         recent_history = history[-self.interpolation_window:]
-        timestamps = [h.get('timestamp', time.time()) for h in recent_history]
+        timestamps = [_get_ts(h) for h in recent_history]
         
         # If we don't have enough points for degree 2, drop to degree 1 or just take last known
         degree = 2 if len(recent_history) >= 3 else (1 if len(recent_history) == 2 else 0)
         
-        target_timestamp = payload.get('timestamp', time.time())
+        target_timestamp = _get_ts(payload)
         if payload.get('attack_type') == 'REPLAY':
              target_timestamp = time.time()
              

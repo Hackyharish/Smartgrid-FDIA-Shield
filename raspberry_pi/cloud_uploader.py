@@ -115,7 +115,15 @@ class CloudUploader:
                 logger.warning(f'ThingSpeak upload failed: {resp.status_code} {resp.text}')
         except requests.RequestException as e:
             self.stats['uploads_failed'] += 1
-            logger.error(f'ThingSpeak request failed: {e}')
+            err_str = str(e)
+            if any(term in err_str for term in ('NameResolutionError', 'Temporary failure in name resolution', 'getaddrinfo failed')):
+                now = time.time()
+                if now - getattr(self, '_last_dns_warn_time', 0) > 60:
+                    self._last_dns_warn_time = now
+                    print("[WARN] ThingSpeak cloud DNS unreachable (check phone hotspot mobile data). Local Grafana/Modbus unaffected.")
+                logger.warning(f"ThingSpeak DNS resolution failed: {e}")
+            else:
+                logger.error(f'ThingSpeak request failed: {e}')
     
     def get_stats(self) -> dict:
         """Return a copy of the uploader statistics."""

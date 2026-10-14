@@ -21,15 +21,24 @@ for p in env_paths:
         load_dotenv(p, override=True)
 
 # MQTT Configuration
-MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '127.0.0.1')
+raw_broker = os.getenv('MQTT_BROKER_IP', '127.0.0.1').strip().strip("'").strip('"')
+if raw_broker.lower() in ('localhost', '') or raw_broker.endswith('.') or len(raw_broker.split('.')) != 4:
+    MQTT_BROKER_IP = '127.0.0.1'
+else:
+    MQTT_BROKER_IP = raw_broker
+
 MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 MQTT_TOPIC_TELEMETRY = 'smartgrid/node01/telemetry'
 MQTT_TOPIC_CMD = 'smartgrid/node01/cmd'
 MQTT_TOPIC_ALERTS = 'smartgrid/alerts'
 
 # Node Configuration
-NODE_ID = os.getenv('NODE_ID', 'node_01')
-EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '10.175.107.251')
+NODE_ID = os.getenv('NODE_ID', 'node_01').strip().strip("'").strip('"')
+raw_node_ip = os.getenv('EXPECTED_NODE_IP', '10.175.107.251').strip().strip("'").strip('"')
+if raw_node_ip.endswith('.') or len(raw_node_ip.split('.')) != 4:
+    EXPECTED_NODE_IP = '10.175.107.251'
+else:
+    EXPECTED_NODE_IP = raw_node_ip
 
 # Security
 HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')

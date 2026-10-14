@@ -54,7 +54,7 @@ def generate_garbage_payload():
     """Generates a randomized JSON payload that looks like telemetry data."""
     payload = {
         "node_id": f"fake_node_{random.randint(100, 999)}",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": int(time.time()),
         "voltage": round(random.uniform(210.0, 250.0), 2),
         "current": round(random.uniform(0.5, 15.0), 2),
         "power": round(random.uniform(100.0, 3500.0), 2),

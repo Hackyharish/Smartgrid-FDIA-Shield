@@ -26,6 +26,32 @@ from config import RESULTS_DIR, DB_PATH
 
 logger = logging.getLogger(__name__)
 
+def parse_timestamp(ts) -> datetime:
+    """Safely parse integer, float, numeric string, or ISO string timestamp."""
+    if ts is None:
+        return datetime.now()
+    if isinstance(ts, (int, float)):
+        try:
+            return datetime.fromtimestamp(ts)
+        except (ValueError, OSError):
+            return datetime.now()
+    if isinstance(ts, str):
+        ts_clean = ts.strip()
+        try:
+            return datetime.fromtimestamp(float(ts_clean))
+        except (ValueError, OSError):
+            pass
+        try:
+            return datetime.fromisoformat(ts_clean.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            pass
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f'):
+            try:
+                return datetime.strptime(ts_clean, fmt)
+            except ValueError:
+                pass
+    return datetime.now()
+
 def apply_white_contrast_theme():
     """Apply a strict pure white background with high-contrast text and dark lines."""
     plt.style.use('default')
@@ -72,6 +98,9 @@ class SmartGridAnalyzer:
         if not detections:
             print("[WARN] No detection data found since specified timestamp. Run attacks first.")
             return
+        
+        # Chronological sort across mixed-type DB timestamps (int, float, string)
+        detections.sort(key=lambda d: parse_timestamp(d.get('timestamp')).timestamp())
         
         print(f"[ANALYZER] Loaded {len(detections)} detection records, {len(verified)} verified telemetry points.")
         
@@ -126,10 +155,15 @@ class SmartGridAnalyzer:
                 FROM raw_telemetry r
                 LEFT JOIN detection_results d ON r.id = d.telemetry_id
                 LEFT JOIN verified_telemetry v ON r.id = v.telemetry_id
-                WHERE r.timestamp >= ?
-                ORDER BY r.timestamp ASC
-            """, (since_timestamp,))
-            return [dict(row) for row in cursor.fetchall()]
+                ORDER BY r.id ASC
+            """)
+            raw_records = [dict(row) for row in cursor.fetchall()]
+            if since_timestamp > 0:
+                filtered = [r for r in raw_records if parse_timestamp(r.get('timestamp')).timestamp() >= since_timestamp]
+            else:
+                filtered = raw_records
+            filtered.sort(key=lambda r: parse_timestamp(r.get('timestamp')).timestamp())
+            return filtered
         except Exception as e:
             logger.error(f"Error fetching joined telemetry: {e}")
             return []
@@ -142,7 +176,7 @@ class SmartGridAnalyzer:
         if not records:
             return
         
-        times = [datetime.fromtimestamp(r['timestamp']) for r in records]
+        times = [parse_timestamp(r['timestamp']) for r in records]
         raw_v = [r['raw_voltage'] or 0.0 for r in records]
         ver_v = [r['verified_voltage'] if r['verified_voltage'] is not None else r['raw_voltage'] for r in records]
         raw_i = [r['raw_current'] or 0.0 for r in records]
@@ -192,8 +226,8 @@ class SmartGridAnalyzer:
         if not detections:
             return
         
-        times = [datetime.fromtimestamp(d['timestamp']) for d in detections]
-        confidences = [d.get('attack_confidence', 0.0) for d in detections]
+        times = [parse_timestamp(d.get('timestamp')) for d in detections]
+        confidences = [float(d.get('attack_confidence') or 0.0) for d in detections]
         statuses = [d.get('status', 'NORMAL') for d in detections]
         
         color_map = {
@@ -235,7 +269,7 @@ class SmartGridAnalyzer:
     # PLOT 3: ROC Curve
     # ═══════════════════════════════════════════════════════════
     def plot_3_roc_curve(self, detections):
-        confidences = np.array([d.get('attack_confidence', 0.0) for d in detections])
+        confidences = np.array([float(d.get('attack_confidence') or 0.0) for d in detections])
         labels = np.array([1 if (d.get('attack_type') or d.get('status') == 'ATTACK_DETECTED') else 0 for d in detections])
         
         if len(np.unique(labels)) < 2:
@@ -258,7 +292,10 @@ class SmartGridAnalyzer:
         sort_idx = np.argsort(fprs)
         fprs = np.array(fprs)[sort_idx]
         tprs = np.array(tprs)[sort_idx]
-        auc = float(np.trapz(tprs, fprs))
+        try:
+            auc = float(np.trapezoid(tprs, fprs))
+        except AttributeError:
+            auc = float(np.trapz(tprs, fprs))
 
         fig, ax = plt.subplots(figsize=(7, 7))
         ax.plot(fprs, tprs, color='#0d47a1', linewidth=2.5, label=f'FDIA Shield Multi-Signal Fusion (AUC = {abs(auc):.3f})')
@@ -333,18 +370,22 @@ class SmartGridAnalyzer:
     # ═══════════════════════════════════════════════════════════
     def plot_5_detector_comparison(self, detections):
         data = {
-            'Physics Check': [d.get('physics_score', 0.0) for d in detections],
-            'Z-Score (EWMA)': [d.get('z_score_normalized', 0.0) for d in detections],
-            'ML Isolation Forest': [d.get('ml_score', 0.0) for d in detections],
-            'HMAC Verifier': [d.get('hmac_score', 0.0) for d in detections],
-            'Network Fingerprint': [d.get('fingerprint_score', 0.0) for d in detections],
+            'Physics Check': [float(d.get('physics_score') or 0.0) for d in detections],
+            'Z-Score (EWMA)': [float(d.get('z_score_normalized') or 0.0) for d in detections],
+            'ML Isolation Forest': [float(d.get('ml_score') or 0.0) for d in detections],
+            'HMAC Verifier': [float(d.get('hmac_score') or 0.0) for d in detections],
+            'Network Fingerprint': [float(d.get('fingerprint_score') or 0.0) for d in detections],
         }
 
         fig, ax = plt.subplots(figsize=(12, 6))
         colors = ['#0277bd', '#f57f17', '#2e7d32', '#c2185b', '#6a1b9a']
         
-        bp = ax.boxplot(list(data.values()), labels=list(data.keys()), patch_artist=True, showmeans=True,
-                        meanprops={'marker':'D', 'markerfacecolor':'black', 'markeredgecolor':'black', 'markersize':6})
+        try:
+            bp = ax.boxplot(list(data.values()), tick_labels=list(data.keys()), patch_artist=True, showmeans=True,
+                            meanprops={'marker':'D', 'markerfacecolor':'black', 'markeredgecolor':'black', 'markersize':6})
+        except TypeError:
+            bp = ax.boxplot(list(data.values()), labels=list(data.keys()), patch_artist=True, showmeans=True,
+                            meanprops={'marker':'D', 'markerfacecolor':'black', 'markeredgecolor':'black', 'markersize':6})
         
         for patch, col in zip(bp['boxes'], colors):
             patch.set_facecolor(col)
@@ -445,11 +486,11 @@ class SmartGridAnalyzer:
         names = ['Physics', 'Z-Score', 'ML (IF)', 'HMAC', 'Fingerprint']
         matrix = np.zeros((5, len(detections)))
         for j, d in enumerate(detections):
-            matrix[0, j] = d.get('physics_score', 0.0)
-            matrix[1, j] = d.get('z_score_normalized', 0.0)
-            matrix[2, j] = d.get('ml_score', 0.0)
-            matrix[3, j] = d.get('hmac_score', 0.0)
-            matrix[4, j] = d.get('fingerprint_score', 0.0)
+            matrix[0, j] = float(d.get('physics_score') or 0.0)
+            matrix[1, j] = float(d.get('z_score_normalized') or 0.0)
+            matrix[2, j] = float(d.get('ml_score') or 0.0)
+            matrix[3, j] = float(d.get('hmac_score') or 0.0)
+            matrix[4, j] = float(d.get('fingerprint_score') or 0.0)
 
         fig, ax = plt.subplots(figsize=(16, 5))
         im = ax.imshow(matrix, aspect='auto', cmap='YlOrRd', vmin=0, vmax=1, interpolation='nearest')
@@ -469,14 +510,15 @@ class SmartGridAnalyzer:
     # PLOT 9: IP Spoofing Cross-Layer Breakdown
     # ═══════════════════════════════════════════════════════════
     def plot_9_ip_spoof_detail(self, detections):
-        spoof_subset = [d for d in detections if d.get('fingerprint_score', 0) > 0.1 or d.get('hmac_score', 0) > 0 or 'SPOOF' in str(d.get('attack_type'))]
+        spoof_subset = [d for d in detections if float(d.get('fingerprint_score') or 0.0) > 0.1 or float(d.get('hmac_score') or 0.0) > 0 or 'SPOOF' in str(d.get('attack_type'))]
         if not spoof_subset:
             spoof_subset = detections[:min(len(detections), 50)]
+        spoof_subset = sorted(spoof_subset, key=lambda d: parse_timestamp(d.get('timestamp')).timestamp())
 
-        times = [datetime.fromtimestamp(d['timestamp']) for d in spoof_subset]
-        hmac_scores = [d.get('hmac_score', 0.0) for d in spoof_subset]
-        fp_scores = [d.get('fingerprint_score', 0.0) for d in spoof_subset]
-        confidences = [d.get('attack_confidence', 0.0) for d in spoof_subset]
+        times = [parse_timestamp(d.get('timestamp')) for d in spoof_subset]
+        hmac_scores = [float(d.get('hmac_score') or 0.0) for d in spoof_subset]
+        fp_scores = [float(d.get('fingerprint_score') or 0.0) for d in spoof_subset]
+        confidences = [float(d.get('attack_confidence') or 0.0) for d in spoof_subset]
 
         fig, axes = plt.subplots(3, 1, figsize=(14, 9), sharex=True)
         fig.suptitle('Cross-Layer IP Spoofing Detection (Layer 7 Cryptography vs Layer 3/4 Network Fingerprint)', fontsize=14, fontweight='bold')
@@ -515,8 +557,8 @@ class SmartGridAnalyzer:
     # PLOT 10: Fingerprint Score Distribution
     # ═══════════════════════════════════════════════════════════
     def plot_10_fingerprint_distribution(self, detections):
-        norm_fps = [d.get('fingerprint_score', 0.0) for d in detections if d.get('status') == 'NORMAL']
-        attk_fps = [d.get('fingerprint_score', 0.0) for d in detections if d.get('status') == 'ATTACK_DETECTED']
+        norm_fps = [float(d.get('fingerprint_score') or 0.0) for d in detections if d.get('status') == 'NORMAL']
+        attk_fps = [float(d.get('fingerprint_score') or 0.0) for d in detections if d.get('status') == 'ATTACK_DETECTED']
 
         fig, ax = plt.subplots(figsize=(9, 6))
         if norm_fps:
@@ -544,11 +586,11 @@ class SmartGridAnalyzer:
         if not records:
             return
 
-        times = [datetime.fromtimestamp(r['timestamp']) for r in records]
-        v_list = [r['raw_voltage'] or 230.0 for r in records]
-        i_list = [r['raw_current'] or 0.0 for r in records]
-        f_list = [r['frequency_hz'] or 50.0 for r in records]
-        pf_list = [r['power_factor'] or 1.0 for r in records]
+        times = [parse_timestamp(r.get('timestamp')) for r in records]
+        v_list = [float(r.get('raw_voltage') or 230.0) for r in records]
+        i_list = [float(r.get('raw_current') or 0.0) for r in records]
+        f_list = [float(r.get('frequency_hz') or 50.0) for r in records]
+        pf_list = [float(r.get('power_factor') or 1.0) for r in records]
 
         # Compute physical power angle: delta_V = -(I * X * PF / V) in degrees
         angles = []
@@ -608,7 +650,7 @@ class SmartGridAnalyzer:
             writer.writeheader()
             for r in records:
                 row = dict(r)
-                row['iso_time'] = datetime.fromtimestamp(r['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                row['iso_time'] = parse_timestamp(r.get('timestamp')).strftime('%Y-%m-%d %H:%M:%S')
                 writer.writerow(row)
         
         print(f'  ✓ CSV Export saved to: {csv_file}')

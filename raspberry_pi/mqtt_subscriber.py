@@ -197,11 +197,14 @@ class MQTTSubscriber:
             self.payload_queue.put_nowait(enriched_payload)
         except queue.Full:
             self.stats['queue_full_drops'] += 1
-            logger.warning('Payload queue full, dropping oldest entry')
+            now = time.time()
+            if now - getattr(self, '_last_drop_log_time', 0.0) >= 5.0:
+                self._last_drop_log_time = now
+                logger.warning(f'Payload queue full under flood traffic; dropping excess packets (total dropped: {self.stats["queue_full_drops"]})')
             try:
                 self.payload_queue.get_nowait()  # Drop oldest
                 self.payload_queue.put_nowait(enriched_payload)
-            except queue.Empty:
+            except (queue.Empty, queue.Full):
                 pass
         
         # Log

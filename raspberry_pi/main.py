@@ -386,7 +386,11 @@ def main():
     subscriber.start()
     
     logger.info("Initializing Cloud Uploader...")
-    cloud = CloudUploader(api_key=THINGSPEAK_WRITE_KEY, base_url=THINGSPEAK_BASE_URL, upload_interval_s=CLOUD_UPLOAD_INTERVAL_S)
+    cloud = CloudUploader(
+        api_key=THINGSPEAK_WRITE_KEY if globals().get('THINGSPEAK_ENABLED', True) else '',
+        base_url=THINGSPEAK_BASE_URL,
+        upload_interval_s=CLOUD_UPLOAD_INTERVAL_S
+    )
     cloud.start()
     
     logger.info("Initializing DoS Detector...")

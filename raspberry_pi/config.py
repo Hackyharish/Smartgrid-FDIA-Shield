@@ -45,6 +45,7 @@ HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')
 
 # ThingSpeak
 THINGSPEAK_WRITE_KEY = os.getenv('THINGSPEAK_WRITE_KEY', '').strip().strip("'").strip('"')
+THINGSPEAK_ENABLED = os.getenv('THINGSPEAK_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 THINGSPEAK_BASE_URL = 'https://api.thingspeak.com/update'
 
 # Database

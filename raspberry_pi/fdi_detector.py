@@ -257,67 +257,78 @@ class FDIDetector:
                 
         return min(score, 1.0), violations, state_est, pmu
 
+    def _extract_ml_features(self, payload: dict) -> list:
+        """Extracts load-invariant cyber-physical feature vector for Isolation Forest."""
+        v = float(payload.get('voltage_V', payload.get('voltage_v', 230.0)))
+        i = float(payload.get('current_A', payload.get('current_a', 0.0)))
+        p = float(payload.get('power_W', payload.get('power_w', 0.0)))
+        f = float(payload.get('frequency_Hz', payload.get('frequency_hz', 50.0)))
+        pf = float(payload.get('power_factor', 1.0))
+        rssi = float(payload.get('rssi_dBm', payload.get('rssi_dbm', -50.0)))
+        
+        expected_p = v * i * max(0.01, pf)
+        pwr_diff = abs(p - expected_p)
+        pwr_err_pct = pwr_diff / max(p, 1.0) * 100.0
+        pwr_ratio = p / max(expected_p, 0.01)
+        
+        return [v, i, p, f, pf, rssi, pwr_diff, pwr_err_pct, pwr_ratio]
+
     def _statistical_check(self, payload) -> float:
-        """Z-score + EWMA anomaly detection."""
+        """Z-score + EWMA anomaly detection with physical load invariance."""
         if len(self.voltage_history) < 5:
             return 0.0
             
-        v = payload.get('voltage_V', payload.get('voltage_v', 230.0))
-        i = payload.get('current_A', payload.get('current_a', 0.0))
-        p = payload.get('power_W', payload.get('power_w', 0.0))
+        v = float(payload.get('voltage_V', payload.get('voltage_v', 230.0)))
+        i = float(payload.get('current_A', payload.get('current_a', 0.0)))
+        p = float(payload.get('power_W', payload.get('power_w', 0.0)))
+        pf = float(payload.get('power_factor', 1.0))
         
+        expected_p = v * i * max(0.01, pf)
+        pwr_diff_pct = abs(p - expected_p) / max(p, 1.0) * 100.0
+        
+        # Grid voltage stability check (voltage is regulated by utility regardless of load)
         v_mean = np.mean(self.voltage_history)
-        v_std = np.std(self.voltage_history) + 1e-6
-        i_mean = np.mean(self.current_history)
-        i_std = np.std(self.current_history) + 1e-6
-        p_mean = np.mean(self.power_history)
-        p_std = np.std(self.power_history) + 1e-6
-        
+        v_std = max(np.std(self.voltage_history), 1.0)
         z_v = abs(v - v_mean) / v_std
-        z_i = abs(i - i_mean) / i_std
-        z_p = abs(p - p_mean) / p_std
         
-        max_z = max(z_v, z_i, z_p)
+        # Physical consistency check: Does the power math add up?
+        # In a legitimate load change, P and I change simultaneously such that P = V * I * PF.
+        math_adds_up = (pwr_diff_pct <= self.power_tolerance_pct)
         
-        # Normalize z-score to 0-1
-        # if max_z is 0 -> 0.0, if max_z >= threshold -> 1.0
-        z_score_norm = min(max_z / self.z_score_threshold, 1.0)
-        
-        # EWMA Residual check
-        ewma_score = 0.0
-        if self.ewma_voltage is not None:
-            res_v = abs(v - self.ewma_voltage) / (self.ewma_voltage + 1e-6)
-            res_p = abs(p - self.ewma_power) / (self.ewma_power + 1e-6)
-            ewma_score = min((res_v + res_p) * 2, 1.0)
+        if math_adds_up:
+            # Physically valid load variation: evaluate voltage stability only
+            z_score_norm = min(z_v / self.z_score_threshold, 1.0) * 0.3
+            ewma_score = 0.0
+            if self.ewma_voltage is not None:
+                res_v = abs(v - self.ewma_voltage) / max(self.ewma_voltage, 1.0)
+                ewma_score = min(res_v * 5.0, 1.0) * 0.3
+        else:
+            # Math does NOT add up: sensor values physically conflict
+            z_i = abs(i - np.mean(self.current_history)) / (np.std(self.current_history) + 1e-6)
+            z_p = abs(p - np.mean(self.power_history)) / (np.std(self.power_history) + 1e-6)
+            max_z = max(z_v, z_i, z_p, pwr_diff_pct / 5.0)
+            z_score_norm = min(max_z / self.z_score_threshold, 1.0)
+            ewma_score = min(pwr_diff_pct / 20.0, 1.0)
             
         # Combine Z-score and EWMA
         combined = (z_score_norm + ewma_score) / 2.0
-        return combined
+        return float(np.clip(combined, 0.0, 1.0))
 
     def _ml_check(self, payload) -> float:
-        """Isolation Forest anomaly score."""
+        """Isolation Forest anomaly score with load-invariance."""
         if self.iso_forest is None or not SKLEARN_AVAILABLE:
             return 0.0
             
-        v = payload.get('voltage_V', payload.get('voltage_v', 230.0))
-        i = payload.get('current_A', payload.get('current_a', 0.0))
-        p = payload.get('power_W', payload.get('power_w', 0.0))
-        f = payload.get('frequency_Hz', payload.get('frequency_hz', 50.0))
-        pf = payload.get('power_factor', 1.0)
-        rssi = payload.get('rssi_dBm', payload.get('rssi_dbm', -50))
-        
-        expected_p = v * i * pf
-        pwr_err = abs(p - expected_p) / max(p, 0.001) * 100
-        
         try:
-            X = np.array([[v, i, p, f, pf, rssi, pwr_err]])
-            # decision_function returns negative for anomaly, positive for normal
+            X = np.array([self._extract_ml_features(payload)])
             decision = self.iso_forest.decision_function(X)[0]
             
-            # Map decision to 0.0 - 1.0 (higher = more anomalous)
-            # Typically decision is between -0.5 and 0.5
-            norm_score = 0.5 - decision
-            return float(np.clip(norm_score, 0.0, 1.0))
+            # Inlier: decision >= 0 -> score 0.0 (completely normal)
+            # Outlier: decision < 0 -> score proportional to deviation
+            if decision >= 0.0:
+                return 0.0
+            else:
+                return float(np.clip(-decision / 0.15, 0.0, 1.0))
         except Exception as e:
             logger.error(f"ML check failed: {e}")
             return 0.0
@@ -396,29 +407,47 @@ class FDIDetector:
             logger.warning(f"ML model not found at {self.model_path}. ML checking will return 0.0.")
 
     def train_model(self, baseline_data: list, save=True):
-        """Train Isolation Forest on baseline (clean) data."""
+        """
+        Train Isolation Forest on baseline clean data with Physics-Constrained Load Augmentation.
+        Learns from real lab ambient voltage/frequency/RSSI while generalising across varying loads (10W-3000W).
+        """
         if not SKLEARN_AVAILABLE:
             logger.error('scikit-learn not available, cannot train model')
             return False
         
+        # Load power steps spanning wide real-world loads (5W to 3000W)
+        power_steps = [5.0, 15.0, 30.0, 50.0, 75.0, 100.0, 150.0, 200.0, 250.0, 300.0, 400.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0]
+        
         features = []
         for d in baseline_data:
-            v = d.get('voltage_V', d.get('voltage_v', 230.0))
-            i = d.get('current_A', d.get('current_a', 0.0))
-            p = d.get('power_W', d.get('power_w', 0.0))
-            f = d.get('frequency_Hz', d.get('frequency_hz', 50.0))
-            pf = d.get('power_factor', 1.0)
-            rssi = d.get('rssi_dBm', d.get('rssi_dbm', -50))
+            # Real lab operating conditions from user testbed
+            v = float(d.get('voltage_V', d.get('voltage_v', 228.0)))
+            f = float(d.get('frequency_Hz', d.get('frequency_hz', 50.0)))
+            pf = float(d.get('power_factor', 0.99))
+            rssi = float(d.get('rssi_dBm', d.get('rssi_dbm', -55.0)))
             
-            # Compute power error
-            expected_p = v * i * pf
-            pwr_err = abs(p - expected_p) / max(p, 0.001) * 100
-            features.append([v, i, p, f, pf, rssi, pwr_err])
+            # 1. Add the original measured sample
+            orig_i = float(d.get('current_A', d.get('current_a', 0.44)))
+            orig_p = float(d.get('power_W', d.get('power_w', 100.0)))
+            features.append(self._extract_ml_features({
+                'voltage_V': v, 'current_A': orig_i, 'power_W': orig_p,
+                'frequency_Hz': f, 'power_factor': pf, 'rssi_dBm': rssi
+            }))
+            
+            # 2. Physics-constrained load augmentation:
+            # Augment across varying power levels where the math adds up (P = V * I * PF)
+            for p_step in power_steps:
+                i_step = p_step / max(v * pf, 1.0) * float(np.random.normal(1.0, 0.003))
+                p_meas = v * i_step * pf * float(np.random.normal(1.0, 0.003))
+                features.append(self._extract_ml_features({
+                    'voltage_V': v, 'current_A': i_step, 'power_W': p_meas,
+                    'frequency_Hz': f, 'power_factor': pf, 'rssi_dBm': rssi
+                }))
         
         X = np.array(features)
         self.iso_forest = IsolationForest(
-            n_estimators=100,
-            contamination=0.05,
+            n_estimators=150,
+            contamination=0.01,
             random_state=42,
             n_jobs=-1
         )
@@ -428,7 +457,7 @@ class FDIDetector:
             self.model_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.model_path, 'wb') as f:
                 pickle.dump(self.iso_forest, f)
-            logger.info(f'Isolation Forest model saved to {self.model_path}')
+            logger.info(f'Load-invariant Isolation Forest model saved to {self.model_path} ({len(X)} samples)')
         
         return True
 

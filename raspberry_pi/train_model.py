@@ -115,25 +115,22 @@ def main():
 
     print(f"Found {len(baseline_data)} clean (NORMAL) readings in database.")
 
-    if len(baseline_data) < 50:
-        if args.bootstrap or len(baseline_data) == 0:
-            print("[INFO] Generating synthetic baseline to bootstrap the model...")
-            training_data = generate_synthetic_baseline(
-                count=args.samples,
-                variable_load=use_wide,
-                bulb_loads=use_bulbs,
-                min_power=args.min_power,
-                max_power=args.max_power
-            )
-        else:
-            print("[NOTICE] You have less than 50 packets in the database.")
-            print("         You can let main.py run with normal bulb loads to collect real data, OR")
-            print("         run with --bootstrap to train on bulb bank baseline immediately:")
-            print("\n         sudo ./venv/bin/python3 train_model.py --bootstrap\n")
-            sys.exit(0)
-    else:
-        print(f"[INFO] Using {len(baseline_data)} real sensor readings from database for training.")
+    if len(baseline_data) > 0 and not args.bootstrap:
+        print(f"[INFO] Using {len(baseline_data)} real sensor readings from database.")
+        print("[INFO] Applying Physics-Constrained Load Augmentation across 5W - 3000W...")
         training_data = baseline_data
+    else:
+        if args.bootstrap:
+            print("[INFO] Generating synthetic baseline as requested by --bootstrap...")
+        else:
+            print("[INFO] Database empty or no clean readings found. Generating synthetic baseline to bootstrap model...")
+        training_data = generate_synthetic_baseline(
+            count=args.samples,
+            variable_load=use_wide,
+            bulb_loads=use_bulbs,
+            min_power=args.min_power,
+            max_power=args.max_power
+        )
 
     # Train and save using FDIDetector
     detector = FDIDetector(node_id=NODE_ID, model_path=IF_MODEL_PATH)

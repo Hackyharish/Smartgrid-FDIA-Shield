@@ -335,29 +335,47 @@ class SmartGridAnalyzer:
             print('  ⚠ Plot 4: No recovery log records found')
             return
 
-        orig_v = [r['original_voltage'] for r in rows if r['original_voltage'] is not None]
-        rec_v = [r['recovered_voltage'] for r in rows if r['recovered_voltage'] is not None]
-        orig_p = [r['original_power'] for r in rows if r['original_power'] is not None]
-        rec_p = [r['recovered_power'] for r in rows if r['recovered_power'] is not None]
+        # Pairwise filtering to guarantee x and y have identical lengths
+        v_pairs = [
+            (float(r['original_voltage']), float(r['recovered_voltage']))
+            for r in rows
+            if r['original_voltage'] is not None and r['recovered_voltage'] is not None
+        ]
+        p_pairs = [
+            (float(r['original_power']), float(r['recovered_power']))
+            for r in rows
+            if r['original_power'] is not None and r['recovered_power'] is not None
+        ]
+
+        if not v_pairs and not p_pairs:
+            print('  ⚠ Plot 4: No valid recovery voltage/power pairs')
+            return
+
+        orig_v = [p[0] for p in v_pairs]
+        rec_v = [p[1] for p in v_pairs]
+        orig_p = [p[0] for p in p_pairs]
+        rec_p = [p[1] for p in p_pairs]
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
         fig.suptitle('Data Recovery Forecasting Accuracy Under Attack', fontsize=14, fontweight='bold')
 
         # Voltage Recovery
-        axes[0].scatter(orig_v, rec_v, color='#0d47a1', edgecolors='black', s=45, alpha=0.85, label='Attack Samples')
-        axes[0].axhline(y=230, color='#2e7d32', linestyle='--', label='Nominal 230V Reference')
+        if orig_v:
+            axes[0].scatter(orig_v, rec_v, color='#0d47a1', edgecolors='black', s=45, alpha=0.85, label='Attack Samples')
+            axes[0].axhline(y=230, color='#2e7d32', linestyle='--', label='Nominal 230V Reference')
+            axes[0].legend(loc='upper left', framealpha=0.9)
         axes[0].set_xlabel('Reported Tampered Voltage (V)')
         axes[0].set_ylabel('Recovered / Forecast Voltage (V)')
         axes[0].set_title('Voltage Reconstruction Under FDI')
-        axes[0].legend(loc='upper left', framealpha=0.9)
         axes[0].grid(True)
 
         # Power Recovery
-        axes[1].scatter(orig_p, rec_p, color='#b71c1c', edgecolors='black', s=45, alpha=0.85, label='Attack Samples')
+        if orig_p:
+            axes[1].scatter(orig_p, rec_p, color='#b71c1c', edgecolors='black', s=45, alpha=0.85, label='Attack Samples')
+            axes[1].legend(loc='upper right', framealpha=0.9)
         axes[1].set_xlabel('Reported Tampered Power (W)')
         axes[1].set_ylabel('Recovered / Forecast Power (W)')
         axes[1].set_title('Active Power Reconstruction Under FDI')
-        axes[1].legend(loc='upper left', framealpha=0.9)
         axes[1].grid(True)
 
         plt.tight_layout()

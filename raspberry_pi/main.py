@@ -142,19 +142,18 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
     stats['packets_processed'] += 1
     
     # Record message for DoS rate tracking
-    src_ip = payload.get('_src_ip', EXPECTED_NODE_IP)
-    dos_detector.record_message(src_ip)
+    src_ip = payload.get('src_ip_seen') or payload.get('mqtt_src_ip') or payload.get('_src_ip') or 'UNKNOWN'
+    if src_ip != EXPECTED_NODE_IP and src_ip != 'UNKNOWN':
+        dos_detector.record_message(src_ip)
     
     # Check if DoS detector has flagged this IP
-    dos_status = dos_detector.get_status()
-    if src_ip in dos_status.get('blocked_ips_time_remaining', {}):
+    if dos_detector.is_blocked(src_ip):
         stats['dos_events'] += 1
-        logger.warning(f"Dropping payload from DoS-blocked IP: {src_ip}")
-        influxdb.write_dos_event({
-            'src_ip': src_ip,
-            'event': 'BLOCKED_DROP',
-            'rate': dos_status['current_rates_msg_per_sec'].get(src_ip, 0),
-        })
+        return
+
+    # Fast drop for unauthorized fake node floods without valid HMAC
+    if payload.get('node_id') != NODE_ID and payload.get('hmac_missing', False):
+        stats['dos_events'] += 1
         return
     
     # 1. Insert raw telemetry to DB (audit trail)

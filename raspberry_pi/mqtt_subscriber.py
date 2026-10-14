@@ -186,6 +186,8 @@ class MQTTSubscriber:
         enriched_payload['hmac_missing'] = hmac_result['hmac_missing']
         enriched_payload['mqtt_recv_timestamp'] = recv_timestamp
         enriched_payload['mqtt_src_ip'] = src_ip
+        enriched_payload['src_ip_seen'] = src_ip
+        enriched_payload['_src_ip'] = src_ip
         enriched_payload['mqtt_topic'] = msg.topic
         
         with self._queue_lock:

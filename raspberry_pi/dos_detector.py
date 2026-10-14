@@ -199,6 +199,13 @@ class DoSDetector:
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Failed to remove iptables rule for {ip}. Error: {e.stderr}")
 
+    def is_blocked(self, ip: str) -> bool:
+        """Returns True if the source IP is currently blocked."""
+        if not ip:
+            return False
+        with self.lock:
+            return ip in self.blocked_ips
+
     def get_status(self):
         """Returns a dictionary with the current status of the DoS detector."""
         now = time.time()

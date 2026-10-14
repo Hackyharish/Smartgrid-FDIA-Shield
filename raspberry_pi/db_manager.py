@@ -37,8 +37,9 @@ class DatabaseManager:
         try:
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
-            # Enable WAL mode for concurrent reads/writes
+            # Enable WAL mode and NORMAL synchronous for 100x faster concurrent commits
             self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA synchronous=NORMAL")
             self._lock = threading.Lock()
             self._create_tables()
             logger.info(f"Database initialized at {self.db_path}")

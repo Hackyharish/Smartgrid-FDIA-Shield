@@ -218,6 +218,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     attackFreezeActive = false;
     Serial.println("[ATTACK] Stopped");
   }
+  else if (strcmp(cmd, "RESTART") == 0 || strcmp(cmd, "REBOOT") == 0 || strcmp(cmd, "RESET") == 0) {
+    Serial.println("[SYSTEM] Remote Software Reset Triggered!");
+    delay(200);
+    ESP.restart();
+  }
 }
 
 // ==============================================================================
@@ -281,6 +286,7 @@ void setup() {
   mqtt.setServer(MQTT_SERVER, MQTT_PORT);
   mqtt.setCallback(mqttCallback);
   mqtt.setBufferSize(1024);
+  mqtt.setKeepAlive(5); // Rapid 5s keepalive to detect broken TCP socket immediately
 
   ensureWiFi();
   
@@ -376,8 +382,23 @@ void loop() {
       String finalPayload;
       serializeJson(doc, finalPayload);
 
-      // 8. Publish to MQTT
-      mqtt.publish(MQTT_TOPIC_PUB, finalPayload.c_str(), false); 
+      // 8. Publish to MQTT with Software Auto-Healing Watchdog
+      static int publishFailCount = 0;
+      bool pubOk = mqtt.publish(MQTT_TOPIC_PUB, finalPayload.c_str(), false);
+      if (!pubOk) {
+        publishFailCount++;
+        Serial.printf("[WARN] MQTT Publish failed (%d/3)\n", publishFailCount);
+        if (publishFailCount >= 3) {
+          Serial.println("[AUTO-HEALING] Link disrupted or ARP hijacked. Reconnecting WiFi stack...");
+          WiFi.disconnect();
+          delay(500);
+          ensureWiFi();
+          mqtt.disconnect();
+          publishFailCount = 0;
+        }
+      } else {
+        publishFailCount = 0;
+      }
       
       // 9. Print debug output
       Serial.printf("[%s][%02d:%02d:%02d] V=%.1f I=%.3f P=%.1f PF=%.2f | MQTT OK | HMAC=%s...\n",

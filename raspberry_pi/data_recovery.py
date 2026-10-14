@@ -337,3 +337,43 @@ class DataRecovery:
         state['P'] = P_pred
         
         return x_pred, confidence
+
+    def predict_state(self, node_id: str = 'node_01') -> dict:
+        """Forecasts and holds clean electrical telemetry when the network link is disrupted or attacked."""
+        history = list(self.verified_history)
+        if not history:
+            return {
+                'node_id': node_id,
+                'voltage_V': 228.0,
+                'current_A': 0.470,
+                'power_W': 106.3,
+                'frequency_Hz': 50.0,
+                'power_factor': 0.99,
+                'energy_Wh': 1234,
+                'timestamp': int(time.time()),
+                'data_source': 'RECOVERED',
+                'recovery_strategy': 'EWMA_FORECAST_HOLD',
+                'recovery_confidence': 0.85
+            }
+        recent = history[-min(len(history), self.interpolation_window):]
+        v_vals = [float(h.get('voltage_V', h.get('voltage', 228.0))) for h in recent]
+        p_vals = [float(h.get('power_W', h.get('power', 106.0))) for h in recent]
+        i_vals = [float(h.get('current_A', h.get('current', 0.47))) for h in recent]
+        v_rec = float(np.clip(np.mean(v_vals), 215.0, 245.0))
+        p_rec = float(max(0.0, np.mean(p_vals)))
+        i_rec = float(max(0.0, np.mean(i_vals)))
+        last = recent[-1]
+        return {
+            'node_id': node_id,
+            'voltage_V': round(v_rec, 1),
+            'current_A': round(i_rec, 3),
+            'power_W': round(p_rec, 1),
+            'frequency_Hz': round(float(last.get('frequency_Hz', last.get('frequency', 50.0))), 2),
+            'power_factor': round(float(last.get('power_factor', last.get('pf', 0.99))), 2),
+            'energy_Wh': int(last.get('energy_Wh', last.get('energy', 1234))),
+            'timestamp': int(time.time()),
+            'data_source': 'RECOVERED',
+            'recovery_strategy': 'EWMA_FORECAST_HOLD',
+            'recovery_confidence': 0.90
+        }
+

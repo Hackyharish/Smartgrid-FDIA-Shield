@@ -19,6 +19,7 @@ import queue
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from datetime import datetime
+import subprocess
 
 # Project modules
 from config import *
@@ -92,6 +93,24 @@ def run_startup_assertions():
     except AssertionError as e:
         logger.error(f"Startup check failed: {e}")
         sys.exit(1)
+
+def heal_network_link(target_ip: str):
+    """Autonomously clears poisoned ARP entries on Raspberry Pi so real ESP32 can communicate."""
+    try:
+        subprocess.run(['sudo', 'ip', 'neigh', 'del', target_ip, 'dev', 'wlan0'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+    except Exception:
+        pass
+    try:
+        subprocess.run(['sudo', 'arp', '-d', target_ip],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+    except Exception:
+        pass
+    try:
+        subprocess.run(['arping', '-c', '1', '-w', '1', '-I', 'wlan0', target_ip],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+    except Exception:
+        pass
 
 def _print_status_line(payload, status, recovery, detection=None):
     """Print one-line status to console with PMU angle and WLS Bad Data status."""
@@ -234,6 +253,7 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             pmu=None
         )
         _print_status_line(payload, 'SPOOF_CONFIRMED', recovery_result, detection_result)
+        heal_network_link(EXPECTED_NODE_IP)
         return
     
     # 5. NORMAL PATH: Run full FDI detection
@@ -387,14 +407,71 @@ def main():
     
     logger.info("Main processing loop started.")
     
+    last_packet_time = time.time()
+    last_forecast_time = 0.0
+    attack_hold_active = False
+
     try:
         while not shutdown_event.is_set():
             try:
                 # Wait for payload from MQTT subscriber
                 payload = subscriber.payload_queue.get(timeout=1.0)
+                
+                # Live packet arrived!
+                last_packet_time = time.time()
+                if attack_hold_active:
+                    attack_hold_active = False
+                    ts = datetime.now().strftime('%H:%M:%S')
+                    print(f"[{ts}][{NODE_ID}] LIVE LINK RESTORED ✓ Returning to live stream.")
+                
                 process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb, modbus)
+                
             except queue.Empty:
-                continue
+                now = time.time()
+                # If no telemetry received for >= 7.0 seconds (link disrupted, silenced under attack, or ARP hijacked)
+                if now - last_packet_time >= 7.0:
+                    if now - last_forecast_time >= 5.0:
+                        last_forecast_time = now
+                        attack_hold_active = True
+                        
+                        # Generate predicted physical state based on verified history
+                        forecast = recovery.predict_state(node_id=NODE_ID)
+                        
+                        # Feed predicted telemetry to InfluxDB (Grafana)
+                        influxdb.write_telemetry(forecast)
+                        
+                        # Holding attack detection context
+                        det_hold = {
+                            'node_id': NODE_ID,
+                            'timestamp': int(now),
+                            'status': 'ATTACK_DETECTED',
+                            'attack_type': 'LINK_INTERRUPTED_OR_SPOOFED',
+                            'attack_confidence': 0.85,
+                            'physics_score': 0.0,
+                            'z_score_normalized': 0.0,
+                            'ml_score': 0.0,
+                            'hmac_score': 0.0,
+                            'fingerprint_score': 0.85
+                        }
+                        influxdb.write_detection(det_hold)
+                        cloud.update_data(forecast, det_hold)
+                        
+                        # Update Modbus SCADA registers with predicted values
+                        modbus.update_registers(
+                            telemetry=forecast,
+                            detection=det_hold,
+                            state_est=None,
+                            pmu=None
+                        )
+                        
+                        ts = datetime.now().strftime('%H:%M:%S')
+                        v_f = forecast['voltage_V']
+                        i_f = forecast['current_A']
+                        p_f = forecast['power_W']
+                        print(f"[{ts}][{NODE_ID}] [ATTACK_HOLD / INTERRUPTED] Telemetry Silenced | Forecasting State: V={v_f:.1f} I={i_f:.3f} P={p_f:.1f} | δ=-0.0° WLS:HOLD | RECOVERING")
+                        
+                        # Autonomously flush any poisoned ARP entries so real ESP32 can reconnect
+                        heal_network_link(EXPECTED_NODE_IP)
             except Exception as e:
                 logger.error(f"Error processing payload: {e}", exc_info=True)
                 

@@ -127,6 +127,8 @@ def main():
     parser.add_argument("--threads", type=int, default=10, help="Number of concurrent attack threads")
     parser.add_argument("--rate", type=int, default=50, help="Messages per second per thread (0 for max speed)")
     
+    parser.add_argument("--no-confirm", action="store_true", help="Start attack immediately without waiting for ENTER key")
+    
     args = parser.parse_args()
     
     print_banner()
@@ -137,11 +139,12 @@ def main():
     logger.info(f"Duration: {args.duration} seconds")
     print("-" * 50)
     
-    try:
-        input("Press ENTER to begin attack (Ctrl+C to abort)...")
-    except KeyboardInterrupt:
-        print("\nAborted.")
-        sys.exit(0)
+    if not args.no_confirm:
+        try:
+            input("Press ENTER to begin attack (Ctrl+C to abort)...")
+        except KeyboardInterrupt:
+            print("\nAborted.")
+            sys.exit(0)
         
     logger.info("INITIATING DOS ATTACK...")
     

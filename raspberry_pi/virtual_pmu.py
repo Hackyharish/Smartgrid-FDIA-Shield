@@ -83,15 +83,17 @@ class VirtualPMUProcessor:
             power_angle_rad = -(i_mag * 0.15 * pf_clamped) / max(v_mag, 100.0)
             base_angle_deg = float(np.degrees(power_angle_rad))
             
-            # Add dynamic frequency deviation tracking with leaky integrator
+            # Dynamic vs Static Tracking:
+            # High-rate digital twin streams (dt < 0.5s): integrate frequency deviation
+            # Low-rate edge IoT telemetry (dt >= 0.5s): use steady-state grid droop angle offset
             freq_dev = freq - self.nominal_freq
-            if len(self.timestamp_history) > 0 and len(self.freq_history) > 0:
-                dt = min(max(0.001, now - self.timestamp_history[-1]), 10.0)
-                angle_increment = (freq_dev * 360.0 * dt)
-                # Leaky integrator prevents unbounded drift without GPS 1-PPS
-                v_angle_deg = float(base_angle_deg + (self.last_phase_angle * 0.85 + angle_increment * 0.15))
+            if len(self.timestamp_history) > 0 and (now - self.timestamp_history[-1]) < 0.5:
+                dt = max(0.001, now - self.timestamp_history[-1])
+                angle_increment = freq_dev * 360.0 * dt
+                v_angle_deg = float(base_angle_deg + (self.last_phase_angle * 0.95 + angle_increment * 0.05))
             else:
-                v_angle_deg = base_angle_deg
+                droop_offset = float(np.clip(freq_dev * 2.0, -2.0, 2.0))
+                v_angle_deg = float(base_angle_deg + droop_offset)
 
             # Wrap to [-180, 180]
             v_angle_deg = ((v_angle_deg + 180.0) % 360.0) - 180.0

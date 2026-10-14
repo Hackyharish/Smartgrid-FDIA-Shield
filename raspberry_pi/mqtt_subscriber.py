@@ -27,6 +27,7 @@ application messages and raw TCP packets, relying on timestamp correlation.
 """
 
 import paho.mqtt.client as mqtt
+import os
 import json
 import time
 import queue
@@ -72,7 +73,7 @@ class MQTTSubscriber:
         self._packet_lock = threading.Lock()
         
         # MQTT client setup
-        self.client = mqtt.Client(client_id='smartgrid_gateway', clean_session=True)
+        self.client = mqtt.Client(client_id=f'smartgrid_gateway_{os.getpid()}', clean_session=True)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message

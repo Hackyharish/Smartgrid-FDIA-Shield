@@ -8,6 +8,7 @@ Dependencies: paho-mqtt, json, time, logging
 
 import json
 import time
+import os
 import logging
 import paho.mqtt.client as mqtt
 from typing import Dict, Optional
@@ -32,7 +33,7 @@ class AlertPublisher:
     def start(self):
         """Connect to MQTT broker for publishing alerts."""
         try:
-            self.client = mqtt.Client(client_id='smartgrid_alert_pub')
+            self.client = mqtt.Client(client_id=f'smartgrid_alert_pub_{os.getpid()}')
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
             self.client.connect(self.broker_ip, self.broker_port, keepalive=60)

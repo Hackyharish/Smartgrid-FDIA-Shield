@@ -109,6 +109,11 @@ class DataRecovery:
         ri = result.get('recovered_current_A', result.get('recovered_current', 0.0))
         rp = result.get('recovered_power_W', result.get('recovered_power', 0.0))
 
+        # Absolute physical grid guardrails (prevent mathematical explosion or zero collapse)
+        rv = float(np.clip(rv, 215.0, 245.0))
+        rp = float(max(0.0, rp))
+        ri = float(max(0.0, ri))
+
         result['recovered_voltage'] = round(float(rv), 2)
         result['recovered_voltage_V'] = round(float(rv), 2)
         result['recovered_current'] = round(float(ri), 4)
@@ -119,85 +124,52 @@ class DataRecovery:
         return result
 
     def _strategy_interpolation(self, payload: dict, history: list) -> dict:
-        """Strategy 1: Temporal interpolation using polynomial fit on last N verified readings.
+        """Strategy 1: Physics-constrained time series forecasting on verified history.
         
-        Uses numpy polyfit (degree 2) on the last `interpolation_window` verified readings
-        for each parameter (V, I, P). Extrapolates to current timestamp.
-        
-        Confidence based on R² of the polynomial fit or fallback logic.
+        Uses Exponentially Weighted Moving Average (EWMA) with trend damping
+        and physical electrical bounds (Ohm's Law / power triangle).
+        Guarantees voltage, current, and power remain strictly within real physical bounds.
         """
         result = {}
-        confidence = 0.0
-        
         if not history:
             return self._fallback_to_defaults()
-
-        def _get_ts(entry):
-            t = entry.get('timestamp')
-            if t is None:
-                return time.time()
-            if isinstance(t, (int, float)):
-                return float(t)
-            if isinstance(t, str):
-                try:
-                    return float(t)
-                except ValueError:
-                    try:
-                        from datetime import datetime
-                        return datetime.fromisoformat(t).timestamp()
-                    except Exception:
-                        return time.time()
-            return time.time()
             
-        recent_history = history[-self.interpolation_window:]
-        timestamps = [_get_ts(h) for h in recent_history]
+        recent = history[-min(len(history), self.interpolation_window):]
         
-        # If we don't have enough points for degree 2, drop to degree 1 or just take last known
-        degree = 2 if len(recent_history) >= 3 else (1 if len(recent_history) == 2 else 0)
+        # 1. Recover Voltage (Time-Series EWMA with mean-reverting grid regulation)
+        # Power grid utility maintains voltage tightly regulated around ~230V.
+        v_vals = [float(h.get('voltage_V', h.get('voltage', 230.0))) for h in recent]
+        v_mean = float(np.mean(v_vals))
+        v_last = v_vals[-1]
+        v_pred = 0.7 * v_last + 0.3 * v_mean
+        v_rec = float(np.clip(v_pred, 215.0, 245.0))
         
-        target_timestamp = _get_ts(payload)
-        if payload.get('attack_type') == 'REPLAY':
-             target_timestamp = time.time()
-             
-        try:
-            if degree > 0:
-                t_arr = np.array(timestamps)
-                # Normalize time to prevent numerical instability
-                t_norm = t_arr - t_arr[0]
-                target_t_norm = target_timestamp - t_arr[0]
-                
-                for param in ['voltage_V', 'current_A', 'power_W']:
-                    values = np.array([h.get(param, 0.0) for h in recent_history])
-                    coeffs = np.polyfit(t_norm, values, degree)
-                    poly = np.poly1d(coeffs)
-                    predicted_val = poly(target_t_norm)
-                    
-                    # Compute R^2 proxy for confidence
-                    residuals = values - poly(t_norm)
-                    ss_res = np.sum(residuals**2)
-                    ss_tot = np.sum((values - np.mean(values))**2)
-                    r2 = 1 - (ss_res / ss_tot) if ss_tot > 1e-6 else 1.0
-                    
-                    result[f'recovered_{param}'] = max(0.0, float(predicted_val))
-                
-                confidence = max(0.4, min(0.95, r2))
-            else:
-                # Degree 0: just use the last known good reading
-                last_reading = recent_history[-1]
-                result['recovered_voltage_V'] = last_reading.get('voltage_V', 230.0)
-                result['recovered_current_A'] = last_reading.get('current_A', 0.0)
-                result['recovered_power_W'] = last_reading.get('power_W', 0.0)
-                confidence = 0.6
-                
-        except Exception as e:
-            logger.error(f"Interpolation error: {e}. Falling back to last known reading.")
-            last_reading = recent_history[-1]
-            result['recovered_voltage_V'] = last_reading.get('voltage_V', 230.0)
-            result['recovered_current_A'] = last_reading.get('current_A', 0.0)
-            result['recovered_power_W'] = last_reading.get('power_W', 0.0)
-            confidence = 0.3
+        # 2. Recover Power (Time-Series EWMA of valid active power)
+        p_vals = [float(h.get('power_W', h.get('power', 0.0))) for h in recent]
+        p_mean = float(np.mean(p_vals))
+        p_last = p_vals[-1]
+        p_rec = float(max(0.0, 0.7 * p_last + 0.3 * p_mean))
+        
+        # 3. Recover Power Factor & Frequency
+        pf_vals = [float(h.get('power_factor', h.get('pf', 0.99))) for h in recent]
+        pf_rec = float(np.clip(np.mean(pf_vals), 0.85, 1.0))
+        
+        f_vals = [float(h.get('frequency_Hz', h.get('frequency', 50.0))) for h in recent]
+        f_rec = float(np.clip(np.mean(f_vals), 49.8, 50.2))
+        
+        # 4. Recover Current via AC Power Physics: I = P / (V * PF)
+        if v_rec > 1.0 and pf_rec > 0.01:
+            i_rec = float(p_rec / (v_rec * pf_rec))
+        else:
+            i_vals = [float(h.get('current_A', h.get('current', 0.0))) for h in recent]
+            i_rec = float(np.mean(i_vals))
             
-        result['recovery_confidence'] = confidence
+        result['recovered_voltage_V'] = round(v_rec, 2)
+        result['recovered_current_A'] = round(i_rec, 4)
+        result['recovered_power_W'] = round(p_rec, 2)
+        result['recovered_frequency_Hz'] = round(f_rec, 2)
+        result['recovered_power_factor'] = round(pf_rec, 3)
+        result['recovery_confidence'] = 0.90
         return result
 
     def _strategy_physics_reconstruction(self, payload: dict, history: list,

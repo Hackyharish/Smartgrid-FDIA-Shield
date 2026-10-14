@@ -134,7 +134,15 @@ class FDIDetector:
         attack_type = None
         
         # OVERRIDE RULES (checked AFTER fusion)
-        if replay_detected:
+        if physics_violations.get('voltage_oob'):
+            status = 'ATTACK_DETECTED'
+            attack_type = 'FDI_VOLTAGE_OOB'
+            confidence = max(confidence, 0.95)
+        elif physics_violations.get('frequency_oob'):
+            status = 'ATTACK_DETECTED'
+            attack_type = 'FDI_FREQUENCY_OOB'
+            confidence = max(confidence, 0.95)
+        elif replay_detected:
             status = 'ATTACK_DETECTED'
             attack_type = 'REPLAY'
         elif hmac_score == 1.0 and fingerprint_verdict == 'CONFIRMED_SPOOF':
@@ -210,15 +218,17 @@ class FDIDetector:
         pf = payload.get('power_factor', 1.0)
         e = payload.get('energy_kWh', payload.get('energy_kwh', 0.0))
         
-        # 1. Voltage bounds
+        # 1. Voltage bounds (IEEE 1547 / EN 50160 grid standard: 200V-260V)
         if v < self.voltage_bounds[0] or v > self.voltage_bounds[1]:
             violations['voltage_oob'] = True
-            score += 0.2
+            v_dev = abs(v - 230.0) / 230.0
+            score += min(1.0, 0.6 + v_dev * 2.0)
             
-        # 2. Frequency bounds
+        # 2. Frequency bounds (49.0 - 51.0 Hz)
         if f < self.frequency_bounds[0] or f > self.frequency_bounds[1]:
             violations['frequency_oob'] = True
-            score += 0.2
+            f_dev = abs(f - 50.0) / 50.0
+            score += min(1.0, 0.6 + f_dev * 10.0)
             
         # 3. Power factor bounds
         if pf < self.pf_bounds[0] or pf > self.pf_bounds[1]:
@@ -292,8 +302,8 @@ class FDIDetector:
         z_v = abs(v - v_mean) / v_std
         
         # Physical consistency check: Does the power math add up?
-        # In a legitimate load change, P and I change simultaneously such that P = V * I * PF.
-        math_adds_up = (pwr_diff_pct <= self.power_tolerance_pct)
+        # Legitimate load variation: P = V * I * PF math holds AND voltage is within regulated grid bounds
+        math_adds_up = (pwr_diff_pct <= self.power_tolerance_pct) and (self.voltage_bounds[0] <= v <= self.voltage_bounds[1])
         
         if math_adds_up:
             # Physically valid load variation: evaluate voltage stability only
@@ -347,18 +357,29 @@ class FDIDetector:
             
         last_seq = self.last_seq[node]
         
-        # Reboot grace period check
-        if seq < self.seq_reboot_grace and (last_seq > 1000):
-            # Probably a reboot, accept it
+        # 1. ESP32 reboot / counter rollover detection:
+        if seq < 10 and last_seq > 50:
+            logger.info(f"ESP32 reboot / sequence reset detected for {node}: {last_seq} -> {seq}")
             self.last_seq[node] = seq
             return False
             
-        if seq <= last_seq:
+        # 2. Sequence jump from injected packet (e.g. attacker sends seq=1000 while node is at 35)
+        if seq > last_seq + 30:
+            logger.warning(f"Abnormal sequence jump detected for {node}: {last_seq} -> {seq}. Injected packet.")
+            # Do NOT update self.last_seq with untrusted injection jump!
+            return False
+            
+        # 3. True replay: identical sequence number or replayed recent packet (within 30 packets)
+        if 0 <= (last_seq - seq) <= 30:
             return True
             
-        if seq > last_seq + 5:
-            logger.warning(f"Sequence jump detected for {node}: {last_seq} -> {seq}. Possible injection gap.")
+        # 4. If seq is much smaller than last_seq (last_seq was poisoned by injection jump), reset to genuine seq
+        if (last_seq - seq) > 30:
+            logger.info(f"Resetting poisoned sequence tracker for {node}: {last_seq} -> {seq}")
+            self.last_seq[node] = seq
+            return False
             
+        # Legitimate sequence progression
         self.last_seq[node] = seq
         return False
 

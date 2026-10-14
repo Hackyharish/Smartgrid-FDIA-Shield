@@ -55,8 +55,8 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-ESP32_IP = "10.59.53.251"
-BROKER_IP = "10.59.53.30"
+ESP32_IP = "10.175.107.251"
+BROKER_IP = "10.175.107.30"
 BROKER_PORT = 1883
 MQTT_TOPIC = "smartgrid/node01/telemetry"
 CAPTURE_TIMEOUT = 30  # seconds to wait for a legitimate packet
@@ -239,8 +239,16 @@ def main():
                         help='Seconds between replays (default: 5.0)')
     parser.add_argument('--capture-timeout', type=int, default=30,
                         help='Max seconds to wait for initial capture (default: 30)')
+    parser.add_argument('--target-ip', type=str, default=BROKER_IP,
+                        help=f'Target broker IP (default: {BROKER_IP})')
+    parser.add_argument('--esp32-ip', type=str, default=ESP32_IP,
+                        help=f'ESP32 sensor node IP (default: {ESP32_IP})')
     
     args = parser.parse_args()
+    
+    global BROKER_IP, ESP32_IP
+    BROKER_IP = args.target_ip
+    ESP32_IP = args.esp32_ip
     
     # Check for root
     import os

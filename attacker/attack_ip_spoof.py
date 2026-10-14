@@ -60,9 +60,9 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-BROKER_IP = "10.59.53.30"
+BROKER_IP = "10.175.107.30"
 BROKER_PORT = 1883
-ESP32_IP = "10.59.53.251"
+ESP32_IP = "10.175.107.251"
 MQTT_TOPIC = "smartgrid/node01/telemetry"
 
 # HMAC key — only used in --advanced-mode (insider threat simulation)

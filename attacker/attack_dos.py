@@ -120,7 +120,7 @@ def main():
     global start_time, is_running
     
     parser = argparse.ArgumentParser(description="MQTT DoS Attack Simulator")
-    parser.add_argument("--target", type=str, default="10.59.53.30", help="Target broker IP address")
+    parser.add_argument("--target", type=str, default="10.175.107.30", help="Target broker IP address")
     parser.add_argument("--port", type=int, default=1883, help="Target broker port")
     parser.add_argument("--topic", type=str, default="smartgrid/node01/telemetry", help="Target topic")
     parser.add_argument("--duration", type=int, default=60, help="Attack duration in seconds (0 for infinite)")

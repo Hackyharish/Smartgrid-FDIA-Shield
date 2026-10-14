@@ -54,6 +54,7 @@ except ImportError:
 
 BROKER_IP = "10.175.107.30"
 BROKER_PORT = 1883
+ESP32_IP = "10.175.107.251"
 CMD_TOPIC = "smartgrid/node01/cmd"
 ALERTS_TOPIC = "smartgrid/alerts"
 SCRIPT_DIR = Path(__file__).parent
@@ -155,6 +156,8 @@ class AttackManager:
             "--interval", str(interval),
             "--voltage-scale", str(voltage_scale),
             "--current-scale", str(current_scale),
+            "--target-ip", BROKER_IP,
+            "--spoof-ip", ESP32_IP,
         ]
         if advanced in ('y', 'yes'):
             cmd.append("--advanced-mode")
@@ -207,6 +210,8 @@ class AttackManager:
             "--duration", str(duration),
             "--interval", str(interval),
             "--capture-timeout", str(capture_timeout),
+            "--target-ip", BROKER_IP,
+            "--esp32-ip", ESP32_IP,
         ]
         
         try:

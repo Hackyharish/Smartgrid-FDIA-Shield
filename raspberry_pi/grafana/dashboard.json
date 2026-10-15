@@ -165,7 +165,7 @@
       "targets": [
         {
           "measurement": "detection",
-          "query": "SELECT last(\"status_code\") FROM \"detection\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+          "query": "SELECT last(\"status_code\") FROM \"detection\" WHERE $timeFilter",
           "rawQuery": true,
           "refId": "A"
         }
@@ -182,6 +182,16 @@
                 "2": { "color": "red", "index": 2, "text": "ATTACK_DETECTED" }
               },
               "type": "value"
+            },
+            {
+              "options": {
+                "match": "null",
+                "result": {
+                  "color": "green",
+                  "text": "NORMAL"
+                }
+              },
+              "type": "special"
             }
           ],
           "thresholds": {
@@ -196,6 +206,13 @@
       },
       "options": {
         "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       }
     },

@@ -36,7 +36,7 @@ except ImportError:
     DOS_CRITICAL_RATE = 20
     DOS_BLOCK_DURATION_S = 300
     DOS_ENABLE_IPTABLES = False
-    EXPECTED_NODE_IP = "10.175.107.251"
+    EXPECTED_NODE_IP = "10.54.192.251"
 
 logger = logging.getLogger(__name__)
 

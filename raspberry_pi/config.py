@@ -34,9 +34,9 @@ MQTT_TOPIC_ALERTS = 'smartgrid/alerts'
 
 # Node Configuration
 NODE_ID = os.getenv('NODE_ID', 'node_01').strip().strip("'").strip('"')
-raw_node_ip = os.getenv('EXPECTED_NODE_IP', '10.175.107.251').strip().strip("'").strip('"')
+raw_node_ip = os.getenv('EXPECTED_NODE_IP', '10.54.192.251').strip().strip("'").strip('"')
 if raw_node_ip.endswith('.') or len(raw_node_ip.split('.')) != 4:
-    EXPECTED_NODE_IP = '10.175.107.251'
+    EXPECTED_NODE_IP = '10.54.192.251'
 else:
     EXPECTED_NODE_IP = raw_node_ip
 

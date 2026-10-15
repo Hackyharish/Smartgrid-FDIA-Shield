@@ -97,6 +97,11 @@ def run_startup_assertions():
 def heal_network_link(target_ip: str):
     """Autonomously clears poisoned ARP entries on Raspberry Pi so real ESP32 can communicate."""
     try:
+        subprocess.run(['sudo', 'ip', 'neigh', 'flush', 'to', target_ip],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+    except Exception:
+        pass
+    try:
         subprocess.run(['sudo', 'ip', 'neigh', 'del', target_ip, 'dev', 'wlan0'],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
     except Exception:
@@ -108,6 +113,11 @@ def heal_network_link(target_ip: str):
         pass
     try:
         subprocess.run(['arping', '-c', '1', '-w', '1', '-I', 'wlan0', target_ip],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+    except Exception:
+        pass
+    try:
+        subprocess.run(['ping', '-c', '1', '-W', '1', target_ip],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
     except Exception:
         pass
@@ -129,13 +139,13 @@ def _print_status_line(payload, status, recovery, detection=None):
         extra = f" | δ={delta:+.1f}° {wls_flag}"
 
     if status == 'NORMAL':
-        print(f'[{ts}][{node}] V={v:.1f} I={i:.3f} P={p:.1f}{extra} | NORMAL')
-    elif status == 'SPOOF_CONFIRMED':
-        rv = recovery.get('recovered_voltage', 0) if recovery else 0
-        print(f'[{ts}][{node}] HMAC=FAIL SPOOF=CONFIRMED | V={v:.1f}->R:{rv:.1f}{extra} | RECOVERED')
+        print(f'[{ts}][{node}] V={v:.1f}V I={i:.3f}A P={p:.1f}W{extra} | NORMAL')
     else:
-        rv = recovery.get('recovered_voltage', 0) if recovery else 0
-        print(f'[{ts}][{node}] V={v:.1f} I={i:.3f} P={p:.1f} | {status} | R_V={rv:.1f}{extra}')
+        attack_type = detection.get('attack_type', status) if detection else status
+        rec_v = recovery.get('recovered_voltage_V', recovery.get('recovered_voltage', 230.0)) if recovery else 230.0
+        rec_i = recovery.get('recovered_current_A', recovery.get('recovered_current', 0.0)) if recovery else 0.0
+        rec_p = recovery.get('recovered_power_W', recovery.get('recovered_power', 0.0)) if recovery else 0.0
+        print(f'[{ts}][{node}] [ATTACK DETECTED: {attack_type}] Tampered: V={v:.1f}V I={i:.3f}A P={p:.1f}W -> PREDICTED: V_pred={rec_v:.1f}V I_pred={rec_i:.3f}A P_pred={rec_p:.1f}W{extra} | RECOVERING')
 
 def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb, modbus):
     """Process a single telemetry payload through the security pipeline."""
@@ -431,9 +441,9 @@ def main():
                 
             except queue.Empty:
                 now = time.time()
-                # If no telemetry received for >= 7.0 seconds (link disrupted, silenced under attack, or ARP hijacked)
-                if now - last_packet_time >= 7.0:
-                    if now - last_forecast_time >= 5.0:
+                # If no telemetry received for >= 2.0 seconds (link disrupted, silenced under attack, or ARP hijacked)
+                if now - last_packet_time >= 2.0:
+                    if now - last_forecast_time >= 1.0:
                         last_forecast_time = now
                         attack_hold_active = True
                         
@@ -448,7 +458,7 @@ def main():
                             'node_id': NODE_ID,
                             'timestamp': int(now),
                             'status': 'ATTACK_DETECTED',
-                            'attack_type': 'LINK_INTERRUPTED_OR_SPOOFED',
+                            'attack_type': 'LINK_SILENCED_OR_ATTACK_INTERRUPTED',
                             'attack_confidence': 0.85,
                             'physics_score': 0.0,
                             'z_score_normalized': 0.0,
@@ -471,7 +481,7 @@ def main():
                         v_f = forecast['voltage_V']
                         i_f = forecast['current_A']
                         p_f = forecast['power_W']
-                        print(f"[{ts}][{NODE_ID}] [ATTACK_HOLD / INTERRUPTED] Telemetry Silenced | Forecasting State: V={v_f:.1f} I={i_f:.3f} P={p_f:.1f} | δ=-0.0° WLS:HOLD | RECOVERING")
+                        print(f"[{ts}][{NODE_ID}] [ATTACK: LINK SILENCED / HIJACKED] | PREDICTED: V_pred={v_f:.1f}V I_pred={i_f:.3f}A P_pred={p_f:.1f}W | δ=-0.0° WLS:HOLD | RECOVERING")
                         
                         # Autonomously flush any poisoned ARP entries so real ESP32 can reconnect
                         heal_network_link(EXPECTED_NODE_IP)

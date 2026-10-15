@@ -123,7 +123,7 @@ def run_simulator(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SmartGrid Digital Twin Simulator")
     parser.add_argument('--mode', choices=['mqtt', 'standalone'], default='standalone', help="Run mode")
-    parser.add_argument('--broker', default='10.175.107.30', help="MQTT broker IP")
+    parser.add_argument('--broker', default='10.54.192.30', help="MQTT broker IP")
     parser.add_argument('--port', type=int, default=1883, help="MQTT broker port")
     parser.add_argument('--topic', default=None, help="Target MQTT topic (e.g. smartgrid/node01/telemetry)")
     parser.add_argument('--scenario', default='normal', help="Simulation scenario to run")

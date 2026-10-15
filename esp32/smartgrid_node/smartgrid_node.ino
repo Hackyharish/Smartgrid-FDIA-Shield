@@ -34,17 +34,17 @@
 // ==============================================================================
 const char* WIFI_SSID = "HarishsPhone";
 const char* WIFI_PASS = "Podaapattiiii";
-const char* MQTT_SERVER = "10.175.107.30";
+const char* MQTT_SERVER = "10.54.192.30";
 const int MQTT_PORT = 1883;
 const char* NODE_ID = "node_01";
 const char* HMAC_SECRET_KEY = "smartgrid_secret_key_2025";
-const int PUBLISH_INTERVAL_MS = 5000;
+const int PUBLISH_INTERVAL_MS = 1000;
 
 // Static IP Configuration on Hotspot Subnet
-IPAddress staticIP(10, 175, 107, 251);
-IPAddress gateway(10, 175, 107, 1);
+IPAddress staticIP(10, 54, 192, 251);
+IPAddress gateway(10, 54, 192, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress dns(10, 175, 107, 1);
+IPAddress dns(10, 54, 192, 1);
 
 const char* MQTT_TOPIC_PUB = "smartgrid/node01/telemetry";
 const char* MQTT_TOPIC_SUB = "smartgrid/node01/cmd";
@@ -231,21 +231,25 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 void ensureWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
   
-  Serial.print("Connecting to WiFi");
-  // SECTION 2 — Static IP setup
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(WIFI_SSID);
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_STA);
   WiFi.config(staticIP, gateway, subnet, dns);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  int backoff = 1000;
   int attempt = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(backoff);
+    delay(500);
     Serial.print(".");
-    backoff = min(backoff * 2, 30000);
     attempt++;
-    if (attempt > 6) { // Reaches ~30s total
-      Serial.println(" WiFi failed. Restarting.");
-      ESP.restart();
+    if (attempt > 30) {
+      Serial.println("\nWiFi retry...");
+      WiFi.disconnect(true);
+      delay(500);
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      attempt = 0;
     }
   }
   Serial.println("\nWiFi Connected. IP: " + WiFi.localIP().toString());
@@ -263,12 +267,15 @@ void ensureMQTT() {
     } else {
       Serial.print("Failed, rc=");
       Serial.print(mqtt.state());
-      Serial.println(". Retrying in 3s...");
-      delay(3000);
+      Serial.println(". Retrying in 2s...");
+      delay(2000);
       attempt++;
-      if (attempt >= 5) {
-        Serial.println("MQTT max retries reached. Restarting.");
-        ESP.restart();
+      if (attempt >= 10) {
+        Serial.println("MQTT retries exceeded. Flushing WiFi stack for auto-healing...");
+        WiFi.disconnect(true);
+        delay(500);
+        ensureWiFi();
+        attempt = 0;
       }
     }
   }

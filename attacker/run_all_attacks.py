@@ -313,8 +313,8 @@ class AutomatedAttackSuite:
 
 def main():
     parser = argparse.ArgumentParser(description="SmartGrid Automated Attack Suite for Kali Linux")
-    parser.add_argument("--broker", default="10.175.107.30", help="Raspberry Pi Broker IP")
-    parser.add_argument("--esp32", default="10.175.107.251", help="ESP32 Sensor IP")
+    parser.add_argument("--broker", default="10.54.192.30", help="Raspberry Pi Broker IP")
+    parser.add_argument("--esp32", default="10.54.192.251", help="ESP32 Sensor IP")
     parser.add_argument("--port", type=int, default=5020, help="Modbus TCP Port")
     parser.add_argument("--quick", action="store_true", help="Quick run mode (20s per attack instead of 45s)")
     args = parser.parse_args()

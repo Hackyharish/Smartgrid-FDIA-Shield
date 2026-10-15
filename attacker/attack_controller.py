@@ -52,9 +52,9 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-BROKER_IP = "10.175.107.30"
+BROKER_IP = "10.54.192.30"
 BROKER_PORT = 1883
-ESP32_IP = "10.175.107.251"
+ESP32_IP = "10.54.192.251"
 CMD_TOPIC = "smartgrid/node01/cmd"
 ALERTS_TOPIC = "smartgrid/alerts"
 SCRIPT_DIR = Path(__file__).parent

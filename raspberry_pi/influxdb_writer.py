@@ -43,8 +43,8 @@ class InfluxDBWriter:
         self._running = False
         self._worker_thread = None
         
-        self.batch_size = 100
-        self.flush_interval = 5.0 # seconds
+        self.batch_size = 50
+        self.flush_interval = 1.0 # seconds (flush every second for continuous real-time Grafana display)
         self.retry_interval = 10.0 # seconds
 
     def start(self):
@@ -180,6 +180,7 @@ class InfluxDBWriter:
             "tags": {
                 "node_id": node_id
             },
+            "time": time.time_ns(),
             "fields": fields
         }
         self._enqueue(point)
@@ -224,6 +225,7 @@ class InfluxDBWriter:
                 "status_tag": status_str,
                 "attack_type_tag": str(detection_result.get('attack_type', 'none'))
             },
+            "time": time.time_ns(),
             "fields": fields
         }
         self._enqueue(point)
@@ -245,6 +247,7 @@ class InfluxDBWriter:
                 "ip": str(event_dict.get('ip', 'unknown')),
                 "node_id": str(event_dict.get('node_id', 'unknown'))
             },
+            "time": time.time_ns(),
             "fields": fields
         }
         self._enqueue(point)

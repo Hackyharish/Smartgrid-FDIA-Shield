@@ -35,7 +35,7 @@ BANNER = """
 
 class ModbusClient:
     """Lightweight pure-socket Modbus TCP client."""
-    def __init__(self, host="10.175.107.30", port=5020, timeout=3.0):
+    def __init__(self, host="10.54.192.30", port=5020, timeout=3.0):
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -195,7 +195,7 @@ def run_register_injection(client, reg_num: int = None, val_input: float = None)
 def main():
     print(BANNER)
     parser = argparse.ArgumentParser(description="Modbus TCP SCADA Attack Simulator")
-    parser.add_argument('--target', default='10.175.107.30', help="Target Raspberry Pi IP")
+    parser.add_argument('--target', default='10.54.192.30', help="Target Raspberry Pi IP")
     parser.add_argument('--port', type=int, default=5020, help="Modbus TCP Port (default: 5020)")
     parser.add_argument('--action', choices=['recon', 'trip', 'close', 'inject', 'menu'], default='menu', help="Action to execute")
     parser.add_argument('--reg', type=int, default=None, help="Register number for inject (e.g. 40001)")

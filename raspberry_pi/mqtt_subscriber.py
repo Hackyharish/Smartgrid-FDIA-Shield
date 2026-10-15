@@ -41,7 +41,7 @@ from hmac_verifier import verify_payload_hmac
 logger = logging.getLogger(__name__)
 
 class MQTTSubscriber:
-    def __init__(self, broker_ip: str = '10.175.107.30', broker_port: int = 1883,
+    def __init__(self, broker_ip: str = '127.0.0.1', broker_port: int = 1883,
                  topics: list = None, queue_maxsize: int = 1000):
         """
         MQTT Subscriber with HMAC verification and source IP tracking.

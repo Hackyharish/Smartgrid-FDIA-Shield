@@ -55,8 +55,8 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-ESP32_IP = "10.175.107.251"
-BROKER_IP = "10.175.107.30"
+ESP32_IP = "10.54.192.251"
+BROKER_IP = "10.54.192.30"
 BROKER_PORT = 1883
 MQTT_TOPIC = "smartgrid/node01/telemetry"
 CAPTURE_TIMEOUT = 30  # seconds to wait for a legitimate packet

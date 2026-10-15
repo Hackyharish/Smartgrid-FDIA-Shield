@@ -60,6 +60,7 @@ class NetworkFingerprint:
         # Per-IP tracking
         self._last_packet_time = {}  # {ip: timestamp}
         self._mac_addresses = defaultdict(set)  # {ip: {mac1, mac2}}
+        self._mac_timestamps = defaultdict(dict)  # {ip: {mac: last_seen}}
         self._latest_results = {}  # {ip: result_dict}
         self._packet_counts = defaultdict(int)  # {ip: count}
         
@@ -123,10 +124,14 @@ class NetworkFingerprint:
         with self._lock:
             self._packet_counts[src_ip] += 1
             
-            # Track MAC addresses (Ether layer available on local LAN)
+            # Track MAC addresses (Ether layer available on local LAN) with 10s sliding window
             if pkt.haslayer(Ether):
                 src_mac = pkt[Ether].src
-                self._mac_addresses[src_ip].add(src_mac)
+                self._mac_timestamps[src_ip][src_mac] = now
+                # Prune MACs older than 10.0 seconds
+                active_macs = {m for m, t in self._mac_timestamps[src_ip].items() if now - t <= 10.0}
+                self._mac_timestamps[src_ip] = {m: t for m, t in self._mac_timestamps[src_ip].items() if m in active_macs}
+                self._mac_addresses[src_ip] = active_macs
             
             # Track arrival times
             self._arrival_times[src_ip].append(now)
@@ -225,7 +230,14 @@ class NetworkFingerprint:
         with self._lock:
             result = self._latest_results.get(ip)
             if result:
-                return dict(result)  # return a copy
+                res_copy = dict(result)
+                now = time.time()
+                # If last packet analyzed was >10 seconds ago, relax attack status back to normal
+                if now - res_copy.get('last_seen', 0.0) > 10.0:
+                    res_copy['verdict'] = 'LEGITIMATE'
+                    res_copy['fingerprint_score'] = 0.0
+                    res_copy['mac_conflict'] = False
+                return res_copy
         # Default result when no packets analyzed yet
         return {
             'src_ip': ip,

@@ -40,6 +40,8 @@ if raw_node_ip.endswith('.') or len(raw_node_ip.split('.')) != 4:
 else:
     EXPECTED_NODE_IP = raw_node_ip
 
+EXPECTED_NODE_MAC = os.getenv('EXPECTED_NODE_MAC', 'a0:b7:65:23:14:08').strip().strip("'").strip('"')
+
 # Security
 HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')
 

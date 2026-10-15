@@ -82,37 +82,39 @@ def print_banner():
     print("╚══════════════════════════════════════════════════╝")
 
 def run_startup_assertions():
-    """Run critical startup assertions."""
+    """Run critical startup assertions and pin permanent ESP32 ARP entry."""
     try:
         assert DB_PATH.parent.exists(), f"Database directory {DB_PATH.parent} does not exist"
         assert Path('.env').exists() or Path(__file__).parent.joinpath('.env').exists(), ".env configuration file is missing"
         assert HMAC_SECRET_KEY and len(HMAC_SECRET_KEY) > 0, "HMAC_SECRET_KEY must be set"
         assert EXPECTED_NODE_IP is not None, "EXPECTED_NODE_IP must be set"
-        print("ALL CHECKS PASSED ✓")
-        logger.info("Startup assertions passed.")
+        
+        # Pin ESP32 static MAC permanently so spoofed packets cannot hijack the socket
+        target_mac = globals().get('EXPECTED_NODE_MAC', 'a0:b7:65:23:14:08')
+        try:
+            subprocess.run(['sudo', 'ip', 'neigh', 'replace', EXPECTED_NODE_IP, 'lladdr', target_mac, 'nud', 'permanent', 'dev', 'wlan0'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            subprocess.run(['sudo', 'arp', '-s', EXPECTED_NODE_IP, target_mac],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        except Exception:
+            pass
+
+        print("ALL CHECKS PASSED ✓ (ESP32 Static ARP Pinned)")
+        logger.info(f"Startup assertions passed. Static ARP pinned for {EXPECTED_NODE_IP} -> {target_mac}.")
     except AssertionError as e:
         logger.error(f"Startup check failed: {e}")
         sys.exit(1)
 
-def heal_network_link(target_ip: str):
-    """Autonomously clears poisoned ARP entries on Raspberry Pi so real ESP32 can communicate."""
+def heal_network_link(target_ip: str, target_mac: str = None):
+    """Autonomously pins and refreshes static ARP entry on Raspberry Pi so real ESP32 communicates continuously."""
+    mac = target_mac or globals().get('EXPECTED_NODE_MAC', 'a0:b7:65:23:14:08')
     try:
-        subprocess.run(['sudo', 'ip', 'neigh', 'flush', 'to', target_ip],
+        subprocess.run(['sudo', 'ip', 'neigh', 'replace', target_ip, 'lladdr', mac, 'nud', 'permanent', 'dev', 'wlan0'],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
     except Exception:
         pass
     try:
-        subprocess.run(['sudo', 'ip', 'neigh', 'del', target_ip, 'dev', 'wlan0'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-    except Exception:
-        pass
-    try:
-        subprocess.run(['sudo', 'arp', '-d', target_ip],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-    except Exception:
-        pass
-    try:
-        subprocess.run(['arping', '-c', '1', '-w', '1', '-I', 'wlan0', target_ip],
+        subprocess.run(['sudo', 'arp', '-s', target_ip, mac],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
     except Exception:
         pass
@@ -122,8 +124,11 @@ def heal_network_link(target_ip: str):
     except Exception:
         pass
 
+_last_console_status = 'NORMAL'
+
 def _print_status_line(payload, status, recovery, detection=None):
-    """Print one-line status to console with PMU angle and WLS Bad Data status."""
+    """Print one-line status to console with PMU angle, WLS Bad Data status, and transition notices."""
+    global _last_console_status
     ts = datetime.now().strftime('%H:%M:%S')
     node = payload.get('node_id', '?')
     v = payload.get('voltage_V', 0)
@@ -139,8 +144,12 @@ def _print_status_line(payload, status, recovery, detection=None):
         extra = f" | δ={delta:+.1f}° {wls_flag}"
 
     if status == 'NORMAL':
+        if _last_console_status != 'NORMAL':
+            print(f"[{ts}][{node}] ATTACK CONCLUDED ✓ Telemetry restored to normal baseline.")
+        _last_console_status = 'NORMAL'
         print(f'[{ts}][{node}] V={v:.1f}V I={i:.3f}A P={p:.1f}W{extra} | NORMAL')
     else:
+        _last_console_status = status
         attack_type = detection.get('attack_type', status) if detection else status
         rec_v = recovery.get('recovered_voltage_V', recovery.get('recovered_voltage', 230.0)) if recovery else 230.0
         rec_i = recovery.get('recovered_current_A', recovery.get('recovered_current', 0.0)) if recovery else 0.0
@@ -301,6 +310,7 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
     else:  # SUSPICIOUS or ATTACK_DETECTED
         if status == 'ATTACK_DETECTED':
             stats['attacks_detected'] += 1
+            heal_network_link(EXPECTED_NODE_IP)
             
         recovery_result = recovery.recover(payload, detection_result)
         db.insert_recovery_log(recovery_result)

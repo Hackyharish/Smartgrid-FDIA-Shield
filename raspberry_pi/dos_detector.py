@@ -42,12 +42,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class DoSDetector:
-    def __init__(self):
+    def __init__(self, influxdb_writer=None):
         self.rate_window = DOS_RATE_WINDOW_S
         self.warning_rate = DOS_WARNING_RATE
         self.critical_rate = DOS_CRITICAL_RATE
         self.block_duration = DOS_BLOCK_DURATION_S
         self.enable_iptables = DOS_ENABLE_IPTABLES
+        self.influxdb = influxdb_writer
         
         # Message tracking: IP -> deque of timestamps
         self.message_history = defaultdict(deque)
@@ -141,6 +142,16 @@ class DoSDetector:
                 msg_count = len(history)
                 rate = msg_count / float(self.rate_window)
                 
+                # Report rate to InfluxDB for live Grafana display
+                if self.influxdb:
+                    self.influxdb.write_dos_event({
+                        'ip': ip,
+                        'node_id': 'node_01',
+                        'rate': round(rate, 2),
+                        'limit': self.critical_rate,
+                        'status': 'BLOCKED' if ip in self.blocked_ips else ('WARNING' if rate >= self.warning_rate else 'NORMAL')
+                    })
+                
                 # Check thresholds
                 if rate >= self.critical_rate:
                     if ip not in self.whitelist:
@@ -155,6 +166,18 @@ class DoSDetector:
                         ts = datetime.now().strftime('%H:%M:%S')
                         print(f"[{ts}][DoS WARNING] High message rate from {ip}: {rate:.1f} msg/s (threshold: {self.warning_rate} msg/s)")
                         logger.warning(f"WARNING DoS rate from IP {ip}: {rate:.2f} msg/s")
+            
+            # If no active attacks, record a zero baseline every 5 seconds so Grafana displays clean 0 instead of 'No data'
+            if self.influxdb and not ips_to_check and not self.blocked_ips:
+                if now - getattr(self, '_last_baseline_influx', 0.0) >= 5.0:
+                    self._last_baseline_influx = now
+                    self.influxdb.write_dos_event({
+                        'ip': 'baseline',
+                        'node_id': 'node_01',
+                        'rate': 0.0,
+                        'limit': self.critical_rate,
+                        'status': 'NORMAL'
+                    })
 
     def _apply_block(self, ip, rate):
         """Blocks an IP address."""
@@ -216,6 +239,19 @@ class DoSDetector:
             return False
         with self.lock:
             return ip in self.blocked_ips
+
+    def get_rate(self, ip: str) -> float:
+        """Returns the current message rate (msg/s) for a given IP."""
+        if not ip:
+            return 0.0
+        now = time.time()
+        cutoff_time = now - self.rate_window
+        with self.lock:
+            history = self.message_history.get(ip)
+            if not history:
+                return 0.0
+            valid_count = sum(1 for t in history if t >= cutoff_time)
+            return round(valid_count / float(self.rate_window), 2)
 
     def get_status(self):
         """Returns a dictionary with the current status of the DoS detector."""

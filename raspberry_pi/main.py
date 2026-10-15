@@ -169,6 +169,27 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             process_payload._last_dos_blocked_log = now
             ts = datetime.now().strftime('%H:%M:%S')
             print(f"[{ts}][DoS FIREWALL DROP] Dropping traffic from blocked IP {src_ip} (Total dropped: {stats['dos_events']})")
+        if now - getattr(process_payload, '_last_dos_influx_time', 0.0) >= 1.0:
+            process_payload._last_dos_influx_time = now
+            influxdb.write_detection({
+                'node_id': NODE_ID,
+                'timestamp': int(now),
+                'status': 'ATTACK_DETECTED',
+                'attack_type': 'DOS_FLOOD',
+                'attack_confidence': 1.0,
+                'physics_score': 0.0,
+                'z_score_normalized': 0.0,
+                'ml_score': 0.0,
+                'hmac_score': 1.0,
+                'fingerprint_score': 0.0
+            })
+            influxdb.write_dos_event({
+                'ip': src_ip if src_ip != 'UNKNOWN' else 'attacker',
+                'node_id': NODE_ID,
+                'rate': dos_detector.get_rate(src_ip),
+                'limit': dos_detector.critical_rate,
+                'status': 'BLOCKED'
+            })
         return
 
     # Fast drop for unauthorized fake node floods without valid HMAC
@@ -181,6 +202,27 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             ts = datetime.now().strftime('%H:%M:%S')
             sender_str = f"from {src_ip}" if src_ip != 'UNKNOWN' else "flood traffic"
             print(f"[{ts}][DoS DEFENSE] Unauthorized node flood ({sender_str}) without HMAC -> DROPPING PACKETS (Total dropped: {stats['dos_events']})")
+        if now - getattr(process_payload, '_last_dos_influx_time', 0.0) >= 1.0:
+            process_payload._last_dos_influx_time = now
+            influxdb.write_detection({
+                'node_id': NODE_ID,
+                'timestamp': int(now),
+                'status': 'ATTACK_DETECTED',
+                'attack_type': 'DOS_FLOOD',
+                'attack_confidence': 1.0,
+                'physics_score': 0.0,
+                'z_score_normalized': 0.0,
+                'ml_score': 0.0,
+                'hmac_score': 1.0,
+                'fingerprint_score': 0.0
+            })
+            influxdb.write_dos_event({
+                'ip': src_ip if src_ip != 'UNKNOWN' else 'attacker',
+                'node_id': NODE_ID,
+                'rate': dos_detector.get_rate(src_ip if src_ip != 'UNKNOWN' else 'UNAUTHORIZED_FLOOD'),
+                'limit': dos_detector.critical_rate,
+                'status': 'ATTACK_DETECTED'
+            })
         return
     
     # 1. Insert raw telemetry to DB (audit trail)
@@ -420,17 +462,31 @@ def main():
     )
     cloud.start()
     
-    logger.info("Initializing DoS Detector...")
-    dos_detector = DoSDetector()
-    dos_detector.start()
-    
     logger.info("Initializing InfluxDB Writer...")
     influxdb = InfluxDBWriter()
     influxdb.start()
+
+    logger.info("Initializing DoS Detector...")
+    dos_detector = DoSDetector(influxdb_writer=influxdb)
+    dos_detector.start()
     
     logger.info("Initializing Modbus TCP Server...")
     modbus = ModbusServer(host=MODBUS_HOST, port=MODBUS_PORT)
     modbus.start()
+
+    # Seed initial clean baseline in InfluxDB so Grafana immediately renders NORMAL status
+    influxdb.write_detection({
+        'node_id': NODE_ID,
+        'timestamp': int(time.time()),
+        'status': 'NORMAL',
+        'attack_type': 'none',
+        'attack_confidence': 0.0,
+        'physics_score': 0.0,
+        'z_score_normalized': 0.0,
+        'ml_score': 0.0,
+        'hmac_score': 0.0,
+        'fingerprint_score': 0.0
+    })
     
     # Register shutdown handlers
     signal.signal(signal.SIGINT, shutdown_handler)

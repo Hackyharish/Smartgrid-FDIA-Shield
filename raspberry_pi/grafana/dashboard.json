@@ -174,6 +174,7 @@
       "type": "stat",
       "fieldConfig": {
         "defaults": {
+          "noValue": "NORMAL",
           "mappings": [
             {
               "options": {
@@ -262,7 +263,7 @@
       "targets": [
         {
           "measurement": "dos_events",
-          "query": "SELECT mean(\"rate\") FROM \"dos_events\" WHERE $timeFilter GROUP BY \"ip\", time($__interval) fill(null)",
+          "query": "SELECT mean(\"rate\") FROM \"dos_events\" WHERE $timeFilter GROUP BY \"ip\", time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A"
         }

@@ -27,8 +27,11 @@ import signal
 import subprocess
 import sys
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
+
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Auto-elevate to root if run as non-root on Linux/Kali (required for Scapy raw sockets)
 if os.name != 'nt' and hasattr(os, 'geteuid') and os.geteuid() != 0:
@@ -78,8 +81,8 @@ class AttackManager:
             return
         try:
             try:
-                self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id='attack_controller')
-            except AttributeError:
+                self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id='attack_controller')
+            except (AttributeError, TypeError):
                 self.mqtt_client = mqtt.Client(client_id='attack_controller')
             self.mqtt_client.connect(BROKER_IP, BROKER_PORT, keepalive=60)
             self.mqtt_client.loop_start()

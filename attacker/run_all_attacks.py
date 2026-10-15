@@ -57,8 +57,8 @@ class AutomatedAttackSuite:
     def _setup_mqtt(self):
         try:
             try:
-                self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="kali_attack_automator")
-            except AttributeError:
+                self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="kali_attack_automator")
+            except (AttributeError, TypeError):
                 self.mqtt_client = mqtt.Client(client_id="kali_attack_automator")
             self.mqtt_client.connect(self.broker_ip, 1883, keepalive=60)
             self.mqtt_client.loop_start()

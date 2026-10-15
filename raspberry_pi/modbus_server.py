@@ -188,7 +188,7 @@ class ModbusServer:
 
     def _handle_client(self, client_sock: socket.socket, client_addr):
         """Processes Modbus TCP ADU frames from an industrial client/SCADA."""
-        client_sock.settimeout(5.0)
+        client_sock.settimeout(120.0)  # Allow up to 120s idle for interactive SCADA consoles
         try:
             while self.running:
                 # Modbus TCP Header (MBAP): 7 bytes

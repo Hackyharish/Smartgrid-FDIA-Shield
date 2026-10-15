@@ -55,45 +55,89 @@ class ModbusClient:
                 pass
             self.sock = None
 
+    def ensure_connected(self):
+        """Ensures the socket is open and alive."""
+        if self.sock is None:
+            self.connect()
+            return
+        try:
+            self.sock.setblocking(False)
+            peek = self.sock.recv(1, socket.MSG_PEEK)
+            self.sock.setblocking(True)
+            self.sock.settimeout(self.timeout)
+            if len(peek) == 0:
+                self.close()
+                self.connect()
+        except BlockingIOError:
+            self.sock.setblocking(True)
+            self.sock.settimeout(self.timeout)
+        except Exception:
+            self.close()
+            self.connect()
+
     def read_holding_registers(self, start_addr=0, count=12):
         """FC03: Read Holding Registers."""
-        self.trans_id += 1
-        mbap = struct.pack('>HHHB', self.trans_id, 0, 6, 1)
-        pdu = struct.pack('>BHH', 3, start_addr, count)
-        self.sock.sendall(mbap + pdu)
+        for _ in range(2):
+            try:
+                self.ensure_connected()
+                self.trans_id += 1
+                mbap = struct.pack('>HHHB', self.trans_id, 0, 6, 1)
+                pdu = struct.pack('>BHH', 3, start_addr, count)
+                self.sock.sendall(mbap + pdu)
 
-        resp_mbap = self.sock.recv(7)
-        if len(resp_mbap) < 7:
-            return None
-        _, _, length, _ = struct.unpack('>HHHB', resp_mbap)
-        resp_pdu = self.sock.recv(length - 1)
-        if len(resp_pdu) < 2 or resp_pdu[0] != 3:
-            return None
-        byte_count = resp_pdu[1]
-        raw_vals = resp_pdu[2:2 + byte_count]
-        fmt = f'>{len(raw_vals)//2}H'
-        return list(struct.unpack(fmt, raw_vals))
+                resp_mbap = self.sock.recv(7)
+                if len(resp_mbap) < 7:
+                    self.close()
+                    continue
+                _, _, length, _ = struct.unpack('>HHHB', resp_mbap)
+                resp_pdu = self.sock.recv(length - 1)
+                if len(resp_pdu) < 2 or resp_pdu[0] != 3:
+                    self.close()
+                    continue
+                byte_count = resp_pdu[1]
+                raw_vals = resp_pdu[2:2 + byte_count]
+                fmt = f'>{len(raw_vals)//2}H'
+                return list(struct.unpack(fmt, raw_vals))
+            except Exception:
+                self.close()
+        return None
 
     def write_single_coil(self, coil_addr=0, state=True):
         """FC05: Write Single Coil."""
-        self.trans_id += 1
-        val_bytes = 0xFF00 if state else 0x0000
-        mbap = struct.pack('>HHHB', self.trans_id, 0, 6, 1)
-        pdu = struct.pack('>BHH', 5, coil_addr, val_bytes)
-        self.sock.sendall(mbap + pdu)
+        for _ in range(2):
+            try:
+                self.ensure_connected()
+                self.trans_id += 1
+                val_bytes = 0xFF00 if state else 0x0000
+                mbap = struct.pack('>HHHB', self.trans_id, 0, 6, 1)
+                pdu = struct.pack('>BHH', 5, coil_addr, val_bytes)
+                self.sock.sendall(mbap + pdu)
 
-        resp = self.sock.recv(12)
-        return len(resp) >= 8
+                resp = self.sock.recv(12)
+                if len(resp) >= 8:
+                    return True
+                self.close()
+            except Exception:
+                self.close()
+        return False
 
     def write_single_register(self, reg_addr=0, value=2500):
         """FC06: Write Single Holding Register."""
-        self.trans_id += 1
-        mbap = struct.pack('>HHHB', self.trans_id, 0, 6, 1)
-        pdu = struct.pack('>BHH', 6, reg_addr, value & 0xFFFF)
-        self.sock.sendall(mbap + pdu)
+        for _ in range(2):
+            try:
+                self.ensure_connected()
+                self.trans_id += 1
+                mbap = struct.pack('>HHHB', self.trans_id, 0, 6, 1)
+                pdu = struct.pack('>BHH', 6, reg_addr, value & 0xFFFF)
+                self.sock.sendall(mbap + pdu)
 
-        resp = self.sock.recv(12)
-        return len(resp) >= 8
+                resp = self.sock.recv(12)
+                if len(resp) >= 8:
+                    return True
+                self.close()
+            except Exception:
+                self.close()
+        return False
 
 
 def run_reconnaissance(client):

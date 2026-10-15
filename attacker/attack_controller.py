@@ -316,6 +316,62 @@ class AttackManager:
         except Exception as e:
             print(f"[ERROR] Failed to run Modbus attack: {e}")
 
+    def launch_ramp_attack(self):
+        """Launch Stealth FDI Ramp Attack as subprocess."""
+        print("\n--- Stealth FDI Ramp Attack Configuration ---")
+        try:
+            duration = int(input("  Duration in seconds [60]: ").strip() or "60")
+            interval = float(input("  Injection interval in seconds [3.0]: ").strip() or "3.0")
+            start_v = float(input("  Starting Voltage in Volts [230.0]: ").strip() or "230.0")
+            step_v = float(input("  Drift step in Volts per interval [0.8]: ").strip() or "0.8")
+            max_v = float(input("  Ceiling Voltage in Volts [265.0]: ").strip() or "265.0")
+            advanced = input("  Advanced mode (authentic HMAC insider threat)? [y/N]: ").strip().lower()
+        except (ValueError, EOFError):
+            duration, interval, start_v, step_v, max_v, advanced = 60, 3.0, 230.0, 0.8, 265.0, 'n'
+
+        script = SCRIPT_DIR / "attack_ramp.py"
+        if not script.exists():
+            print(f"[ERROR] Script not found: {script}")
+            return
+
+        cmd = [
+            sys.executable, str(script),
+            "--duration", str(duration),
+            "--interval", str(interval),
+            "--start-voltage", str(start_v),
+            "--step", str(step_v),
+            "--max-voltage", str(max_v),
+            "--target-ip", BROKER_IP,
+        ]
+        if advanced in ('y', 'yes'):
+            cmd.append("--advanced-mode")
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            self.active_attacks['FDI_RAMP'] = {
+                'type': 'subprocess',
+                'process': proc,
+                'started': time.time(),
+                'duration': duration,
+                'pid': proc.pid
+            }
+            print(f"[ATTACK] Stealth FDI Ramp attack launched (PID: {proc.pid})")
+
+            import threading
+            def print_output():
+                for line in proc.stdout:
+                    print(f"  {line.rstrip()}")
+            t = threading.Thread(target=print_output, daemon=True)
+            t.start()
+        except Exception as e:
+            print(f"[ERROR] Failed to launch ramp attack: {e}")
+
     # ═══════════════════════════════════════════════════
     # ATTACK MANAGEMENT
     # ═══════════════════════════════════════════════════
@@ -415,9 +471,10 @@ def print_menu():
 ║  3. Replay Attack (capture + replay)                        ║
 ║  4. DoS Flood Attack (MQTT message flood)                   ║
 ║  5. Modbus TCP Attack (SCADA Recon & Breaker Trip)          ║
-║  6. Stop All Attacks                                        ║
-║  7. Status (show running attacks)                           ║
-║  8. Exit                                                     ║
+║  6. Stealth FDI Ramp Attack (gradual monotonic drift)       ║
+║  7. Stop All Attacks                                        ║
+║  8. Status (show running attacks)                           ║
+║  9. Exit                                                     ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
@@ -438,7 +495,7 @@ def main():
         while True:
             print_menu()
             try:
-                choice = input("  Select option [1-8]: ").strip()
+                choice = input("  Select option [1-9]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
             
@@ -453,14 +510,16 @@ def main():
             elif choice == '5':
                 manager.launch_modbus_attack()
             elif choice == '6':
-                manager.stop_all_attacks()
+                manager.launch_ramp_attack()
             elif choice == '7':
-                manager.show_status()
+                manager.stop_all_attacks()
             elif choice == '8':
+                manager.show_status()
+            elif choice == '9':
                 print("\n[EXIT] Shutting down attack controller...")
                 break
             else:
-                print("[ERROR] Invalid option. Please select 1-8.")
+                print("[ERROR] Invalid option. Please select 1-9.")
             
             # Small pause for output to flush
             time.sleep(0.5)

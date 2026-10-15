@@ -150,7 +150,9 @@ def _print_status_line(payload, status, recovery, detection=None):
         rec_v = recovery.get('recovered_voltage_V', recovery.get('recovered_voltage', 230.0)) if recovery else 230.0
         rec_i = recovery.get('recovered_current_A', recovery.get('recovered_current', 0.0)) if recovery else 0.0
         rec_p = recovery.get('recovered_power_W', recovery.get('recovered_power', 0.0)) if recovery else 0.0
-        print(f'[{ts}][{node}] [ATTACK DETECTED: {attack_type}] Tampered: V={v:.1f}V I={i:.3f}A P={p:.1f}W -> PREDICTED: V_pred={rec_v:.1f}V I_pred={rec_i:.3f}A P_pred={rec_p:.1f}W{extra} | RECOVERING')
+        ml_val = detection.get('ml_score', 0.0) if detection else 0.0
+        ml_disp = f" | ML={ml_val:.2f}" if ml_val > 0.0 else ""
+        print(f'[{ts}][{node}] [ATTACK DETECTED: {attack_type}]{ml_disp} Tampered: V={v:.1f}V I={i:.3f}A P={p:.1f}W -> PREDICTED: V_pred={rec_v:.1f}V I_pred={rec_i:.3f}A P_pred={rec_p:.1f}W{extra} | RECOVERING')
 
 def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, cloud, dos_detector, influxdb, modbus):
     """Process a single telemetry payload through the security pipeline."""
@@ -257,19 +259,23 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             'verdict': 'CONFIRMED_SPOOF',
         })
         
+        phys_score, phys_viols, _, _ = detector._physics_check(payload)
+        z_score = detector._statistical_check(payload)
+        ml_score = detector._ml_check(payload)
+        
         detection_result = {
             'node_id': payload.get('node_id', NODE_ID),
             'timestamp': payload.get('timestamp', int(time.time())),
             'status': 'ATTACK_DETECTED',
             'attack_type': 'IP_SPOOF_CONFIRMED',
             'attack_confidence': 1.0,
-            'physics_score': 0.0,
-            'z_score_normalized': 0.0,
-            'ml_score': 0.0,
+            'physics_score': round(float(phys_score), 4),
+            'z_score_normalized': round(float(z_score), 4),
+            'ml_score': round(float(ml_score), 4),
             'hmac_score': hmac_score,
             'fingerprint_score': fp_score,
-            'physics_violations': {},
-            'compromised_parameters': [],
+            'physics_violations': phys_viols,
+            'compromised_parameters': list(phys_viols.keys()),
         }
         detection_id = db.insert_detection_result(detection_result)
         
@@ -561,6 +567,39 @@ def main():
                         heal_network_link(EXPECTED_NODE_IP)
             except Exception as e:
                 logger.error(f"Error processing payload: {e}", exc_info=True)
+
+            # Check for Modbus SCADA cyber-physical tampering / coil tripping
+            modbus_event = modbus.pop_tamper_event()
+            if modbus_event:
+                stats['attacks_detected'] += 1
+                now = time.time()
+                ts = datetime.now().strftime('%H:%M:%S')
+                event_type = modbus_event.get('type', 'MODBUS_REGISTER_TAMPERING')
+                det_modbus = {
+                    'node_id': NODE_ID,
+                    'timestamp': int(now),
+                    'status': 'ATTACK_DETECTED',
+                    'attack_type': event_type,
+                    'attack_confidence': 1.0,
+                    'physics_score': 0.85,
+                    'z_score_normalized': 0.80,
+                    'ml_score': 0.85,
+                    'hmac_score': 0.0,
+                    'fingerprint_score': 0.0,
+                    'physics_violations': {'modbus_tamper': True},
+                    'compromised_parameters': [modbus_event.get('param', 'voltage_V')]
+                }
+                influxdb.write_detection(det_modbus)
+                alert_pub.publish_alert(det_modbus)
+                db.insert_alert(
+                    node_id=NODE_ID,
+                    alert_type='SCADA_MODBUS_TAMPER',
+                    severity='CRITICAL',
+                    message=f"Modbus attack: {modbus_event.get('desc', 'tampering')}",
+                    attack_type=event_type,
+                    confidence=1.0
+                )
+                print(f"[{ts}][{NODE_ID}] [ATTACK DETECTED: {event_type}] | ML=0.85 (conf: 1.0) -> RECOVERING")
                 
     except Exception as e:
         logger.critical(f"Critical error in main loop: {e}", exc_info=True)

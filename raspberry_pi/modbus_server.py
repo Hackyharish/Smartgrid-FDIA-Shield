@@ -18,6 +18,8 @@ import struct
 import threading
 import time
 import logging
+from collections import deque
+from datetime import datetime
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,11 @@ class ModbusServer:
         self.coils = [False] * 16
         self.coils[0] = True  # Circuit breaker closed by default (grid energized)
         self.coils[1] = True  # Auto-isolation active
+
+        # Security & Tamper tracking
+        self.tamper_events = deque(maxlen=20)
+        self.tamper_hold_until = 0.0
+        self.tampered_registers = {}
 
         # Statistics
         self.requests_served = 0
@@ -89,33 +96,55 @@ class ModbusServer:
         with self.lock:
             return bool(self.coils[0])
 
+    def pop_tamper_event(self) -> Optional[Dict[str, Any]]:
+        """Retrieves and clears the next Modbus tamper event for the IDS main loop."""
+        with self.lock:
+            if self.tamper_events:
+                return self.tamper_events.popleft()
+            return None
+
+    def has_tamper_events(self) -> bool:
+        """Checks if any Modbus tamper events are queued."""
+        with self.lock:
+            return len(self.tamper_events) > 0
+
     def update_registers(self, telemetry: Dict[str, Any],
                          detection: Optional[Dict[str, Any]] = None,
                          state_est: Optional[Dict[str, Any]] = None,
                          pmu: Optional[Dict[str, Any]] = None):
         """
         Updates the Modbus holding registers from real-time pipeline outputs.
+        Preserves tampered register values during an attack hold window.
         """
         with self.lock:
+            # If tamper hold window expired, release register lock
+            if time.time() >= self.tamper_hold_until:
+                self.tampered_registers.clear()
+
             # 40001: Scaled Voltage (V * 10, e.g. 2304 -> 230.4 V)
-            v = float(telemetry.get('voltage_V', telemetry.get('voltage_v', 230.0)))
-            self.holding_registers[0] = int(np_clip(v * 10, 0, 65535))
+            if 0 not in self.tampered_registers:
+                v = float(telemetry.get('voltage_V', telemetry.get('voltage_v', 230.0)))
+                self.holding_registers[0] = int(np_clip(v * 10, 0, 65535))
 
             # 40002: Current in mA (I * 1000, e.g. 260 -> 0.260 A)
-            i = float(telemetry.get('current_A', telemetry.get('current_a', 0.26)))
-            self.holding_registers[1] = int(np_clip(i * 1000, 0, 65535))
+            if 1 not in self.tampered_registers:
+                i = float(telemetry.get('current_A', telemetry.get('current_a', 0.26)))
+                self.holding_registers[1] = int(np_clip(i * 1000, 0, 65535))
 
             # 40003: Active Power in Watts (P, e.g. 60)
-            p = float(telemetry.get('power_W', telemetry.get('power_w', 60.0)))
-            self.holding_registers[2] = int(np_clip(p, 0, 65535))
+            if 2 not in self.tampered_registers:
+                p = float(telemetry.get('power_W', telemetry.get('power_w', 60.0)))
+                self.holding_registers[2] = int(np_clip(p, 0, 65535))
 
             # 40004: Frequency in cHz (f * 100, e.g. 5000 -> 50.00 Hz)
-            f = float(telemetry.get('frequency_Hz', telemetry.get('frequency_hz', 50.0)))
-            self.holding_registers[3] = int(np_clip(f * 100, 0, 65535))
+            if 3 not in self.tampered_registers:
+                f = float(telemetry.get('frequency_Hz', telemetry.get('frequency_hz', 50.0)))
+                self.holding_registers[3] = int(np_clip(f * 100, 0, 65535))
 
             # 40005: Power Factor * 1000 (e.g. 990 -> 0.99)
-            pf = float(telemetry.get('power_factor', 0.99))
-            self.holding_registers[4] = int(np_clip(pf * 1000, 0, 65535))
+            if 4 not in self.tampered_registers:
+                pf = float(telemetry.get('power_factor', 0.99))
+                self.holding_registers[4] = int(np_clip(pf * 1000, 0, 65535))
 
             # Synchrophasor PMU registers
             if pmu:
@@ -251,7 +280,21 @@ class ModbusServer:
             elif func_code == 5:
                 coil_addr, coil_val = struct.unpack('>HH', data[:4])
                 if coil_addr < len(self.coils):
-                    self.coils[coil_addr] = (coil_val == 0xFF00)
+                    new_state = (coil_val == 0xFF00)
+                    self.coils[coil_addr] = new_state
+                    ts = datetime.now().strftime('%H:%M:%S')
+                    if coil_addr == 0 and not new_state:
+                        print(f"\n[{ts}][!][SCADA SECURITY ALERT] UNAUTHORIZED CIRCUIT BREAKER TRIP ATTACK!")
+                        print(f"[{ts}][SCADA IDS] Malicious Modbus FC05 forced Coil 00001 -> OPEN (Feeder De-energized)!\n")
+                        self.tamper_events.append({
+                            'type': 'MODBUS_BREAKER_TRIP',
+                            'coil': 1,
+                            'param': 'circuit_breaker',
+                            'desc': 'Coil 00001 forced OPEN by remote Modbus FC05',
+                            'timestamp': time.time()
+                        })
+                    elif coil_addr == 0 and new_state:
+                        print(f"[{ts}][SCADA NOTIFY] Circuit Breaker Coil 00001 Re-Closed -> Feeder Re-Energized.")
                     logger.info(f"Modbus SCADA Command: Coil {coil_addr+1} set to {self.coils[coil_addr]}")
                 return bytes([5]) + data[:4]
 
@@ -260,7 +303,36 @@ class ModbusServer:
                 reg_addr, reg_val = struct.unpack('>HH', data[:4])
                 if reg_addr < len(self.holding_registers):
                     self.holding_registers[reg_addr] = reg_val
-                    logger.info(f"Modbus SCADA Command: Register {40001+reg_addr} set to {reg_val}")
+                    self.tampered_registers[reg_addr] = reg_val
+                    self.tamper_hold_until = time.time() + 8.0  # Hold for 8s to guarantee visibility
+                    
+                    if reg_addr == 0:
+                        phys_str = f"Voltage = {reg_val / 10.0:.1f} V"
+                        param = 'voltage_V'
+                    elif reg_addr == 1:
+                        phys_str = f"Current = {reg_val / 1000.0:.3f} A"
+                        param = 'current_A'
+                    elif reg_addr == 2:
+                        phys_str = f"Power = {reg_val} W"
+                        param = 'power_W'
+                    else:
+                        phys_str = f"Raw = {reg_val}"
+                        param = f"reg_{40001+reg_addr}"
+                        
+                    ts = datetime.now().strftime('%H:%M:%S')
+                    print(f"\n[{ts}][!][SCADA SECURITY ALERT] MODBUS REGISTER TAMPERING DETECTED!")
+                    print(f"[{ts}][SCADA IDS] Attacker overwrote Register {40001+reg_addr} -> {reg_val} ({phys_str})!")
+                    print(f"[{ts}][SCADA DEFENSE] Holding tampered register value for display -> Auto-tripping protective interlock.\n")
+                    
+                    self.tamper_events.append({
+                        'type': 'MODBUS_REGISTER_TAMPERING',
+                        'register': 40001 + reg_addr,
+                        'val': reg_val,
+                        'param': param,
+                        'desc': f"Register {40001+reg_addr} set to {reg_val} ({phys_str})",
+                        'timestamp': time.time()
+                    })
+                    logger.warning(f"Modbus SCADA Attack: Register {40001+reg_addr} tampered to {reg_val} ({phys_str})")
                 return bytes([6]) + data[:4]
 
             # Exception: Illegal Function

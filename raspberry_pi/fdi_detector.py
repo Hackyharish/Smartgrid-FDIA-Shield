@@ -68,6 +68,15 @@ class FDIDetector:
         self.suspicious_streak = 0
         self.suspicious_escalation_count = 3
         
+        # Stealth Ramp & CUSUM drift detection
+        self.cusum_pos = 0.0
+        self.cusum_neg = 0.0
+        self.cusum_k = 0.4   # Drift sensitivity threshold (Volts)
+        self.cusum_h = 2.4   # Decision threshold (Cumulative Volts)
+        self.ramp_consecutive_inc = 0
+        self.ramp_consecutive_dec = 0
+        self.last_voltage = None
+        
         # ML model
         self.iso_forest = None
         self._load_model()
@@ -143,6 +152,10 @@ class FDIDetector:
             status = 'ATTACK_DETECTED'
             attack_type = 'FDI_FREQUENCY_OOB'
             confidence = max(confidence, 0.95)
+        elif physics_violations.get('ramp_detected'):
+            status = 'ATTACK_DETECTED'
+            attack_type = 'FDI_RAMP_STEALTH'
+            confidence = max(confidence, 0.88)
         elif replay_detected:
             status = 'ATTACK_DETECTED'
             attack_type = 'REPLAY'
@@ -170,6 +183,7 @@ class FDIDetector:
         # Determine compromised parameters
         compromised = []
         if physics_violations.get('voltage_oob'): compromised.append('voltage_V')
+        if physics_violations.get('ramp_detected') and 'voltage_V' not in compromised: compromised.append('voltage_V')
         if physics_violations.get('power_mismatch'): compromised.append('power_W')
         if physics_violations.get('frequency_oob'): compromised.append('frequency_Hz')
         if physics_violations.get('pf_oob'): compromised.append('power_factor')
@@ -265,6 +279,30 @@ class FDIDetector:
             violations['pmu_rocof'] = pmu.get('rocof_Hz_s')
             violations['pmu_tve'] = pmu.get('total_vector_error_pct')
             score += pmu.get('pmu_anomaly_score', 0.3) * 0.3
+
+        # 8. Stealth Monotonic Voltage Ramp & CUSUM Drift Detection
+        if self.last_voltage is not None:
+            dv = v - self.last_voltage
+            self.cusum_pos = max(0.0, self.cusum_pos + (dv - self.cusum_k))
+            self.cusum_neg = max(0.0, self.cusum_neg + (-dv - self.cusum_k))
+            
+            if dv > 0.25:
+                self.ramp_consecutive_inc += 1
+                self.ramp_consecutive_dec = 0
+            elif dv < -0.25:
+                self.ramp_consecutive_dec += 1
+                self.ramp_consecutive_inc = 0
+            else:
+                self.ramp_consecutive_inc = max(0, self.ramp_consecutive_inc - 1)
+                self.ramp_consecutive_dec = max(0, self.ramp_consecutive_dec - 1)
+                
+            if (self.ramp_consecutive_inc >= 4 and abs(v - 230.0) >= 2.0) or \
+               (self.ramp_consecutive_dec >= 4 and abs(v - 230.0) >= 2.0) or \
+               (self.cusum_pos >= self.cusum_h and abs(v - 230.0) >= 2.0) or \
+               (self.cusum_neg >= self.cusum_h and abs(v - 230.0) >= 2.0):
+                violations['ramp_detected'] = True
+                score += 0.5
+        self.last_voltage = v
                 
         return min(score, 1.0), violations, state_est, pmu
 
@@ -328,7 +366,16 @@ class FDIDetector:
     def _ml_check(self, payload) -> float:
         """Isolation Forest anomaly score with load-invariance."""
         if self.iso_forest is None or not SKLEARN_AVAILABLE:
-            return 0.0
+            # Fallback distance if sklearn/model not loaded
+            v = float(payload.get('voltage_V', payload.get('voltage_v', 230.0)))
+            f = float(payload.get('frequency_Hz', payload.get('frequency_hz', 50.0)))
+            p = float(payload.get('power_W', payload.get('power_w', 0.0)))
+            i = float(payload.get('current_A', payload.get('current_a', 0.0)))
+            pf = float(payload.get('power_factor', 1.0))
+            exp_p = v * i * max(0.01, pf)
+            pwr_err = abs(p - exp_p) / max(p, 1.0)
+            v_dev = abs(v - 230.0) / 15.0
+            return float(np.clip(max(v_dev, pwr_err), 0.0, 1.0))
             
         try:
             X = np.array([self._extract_ml_features(payload)])
@@ -337,9 +384,11 @@ class FDIDetector:
             # Inlier: decision >= 0 -> score 0.0 (completely normal)
             # Outlier: decision < 0 -> score proportional to deviation
             if decision >= 0.0:
+                if decision < 0.04:
+                    return float(np.clip((0.04 - decision) * 2.5, 0.0, 0.15))
                 return 0.0
             else:
-                return float(np.clip(-decision / 0.15, 0.0, 1.0))
+                return float(np.clip(-decision / 0.10, 0.0, 1.0))
         except Exception as e:
             logger.error(f"ML check failed: {e}")
             return 0.0
@@ -435,20 +484,50 @@ class FDIDetector:
             self.ewma_power = self.ewma_alpha * p + (1 - self.ewma_alpha) * self.ewma_power
 
     def _load_model(self):
-        """Load trained Isolation Forest model from disk."""
+        """Load trained Isolation Forest model from disk with path search and auto-training fallback."""
         if not SKLEARN_AVAILABLE:
-            logger.warning("scikit-learn not available. ML checking disabled.")
+            logger.warning("scikit-learn not available. ML checking will use statistical distance fallback.")
             return
             
-        if self.model_path.exists():
+        candidate_paths = [
+            Path(self.model_path) if self.model_path else None,
+            Path(__file__).parent / 'models' / 'isolation_forest.pkl',
+            Path('models/isolation_forest.pkl'),
+            Path('/home/smartgrid/smartgrid/models/isolation_forest.pkl'),
+            Path('/home/smartgrid/Desktop/Project/Smartgrid-FDIA-Shield/raspberry_pi/models/isolation_forest.pkl')
+        ]
+        
+        loaded = False
+        for p in candidate_paths:
+            if p and p.exists():
+                try:
+                    with open(p, 'rb') as f:
+                        self.iso_forest = pickle.load(f)
+                    self.model_path = p
+                    logger.info(f"Loaded Isolation Forest model from {p}")
+                    loaded = True
+                    break
+                except Exception as e:
+                    logger.error(f"Failed to load ML model from {p}: {e}")
+                    
+        if not loaded:
+            logger.warning(f"ML model not found in candidates. Auto-training baseline Isolation Forest model now...")
             try:
-                with open(self.model_path, 'rb') as f:
-                    self.iso_forest = pickle.load(f)
-                logger.info(f"Loaded Isolation Forest model from {self.model_path}")
+                baseline_samples = []
+                for v_offset in [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0]:
+                    for f_offset in [-0.05, 0.0, 0.05]:
+                        baseline_samples.append({
+                            'voltage_V': 230.0 + v_offset,
+                            'current_A': 0.44,
+                            'power_W': 100.0,
+                            'frequency_Hz': 50.0 + f_offset,
+                            'power_factor': 0.99,
+                            'rssi_dBm': -55.0
+                        })
+                self.train_model(baseline_samples, save=True)
+                logger.info("Auto-trained and initialized fresh Isolation Forest model.")
             except Exception as e:
-                logger.error(f"Failed to load ML model: {e}")
-        else:
-            logger.warning(f"ML model not found at {self.model_path}. ML checking will return 0.0.")
+                logger.error(f"Auto-training baseline ML model failed: {e}")
 
     def train_model(self, baseline_data: list, save=True):
         """

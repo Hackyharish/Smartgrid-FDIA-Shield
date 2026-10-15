@@ -99,7 +99,7 @@ class AutomatedAttackSuite:
         print("""
 ╔══════════════════════════════════════════════════════════════╗
 ║     SmartGrid FDIA Shield — Automated End-to-End Suite       ║
-║     Executing 7 Attack Vectors + Clean Baseline Logging      ║
+║     Executing 8 Attack Vectors + Clean Baseline Logging      ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
         print(f"Broker IP:       {self.broker_ip}")
@@ -287,6 +287,33 @@ class AutomatedAttackSuite:
             proc.kill()
         t1 = time.time()
         self.record_phase("DOS_FLOOD", t0, t1, "High-rate MQTT publish flood (100 msg/s)")
+
+        print("  [Cooldown] Allowing baseline stabilization...")
+        self.countdown(self.cooldown_duration, "COOLDOWN")
+
+        # -------------------------------------------------------------
+        # PHASE 8: Stealth FDI Ramp / Drift Attack
+        # -------------------------------------------------------------
+        print("\n[PHASE 8] Stealth FDI Ramp Attack (Monotonic Drift +0.8V/step)")
+        script = SCRIPT_DIR / "attack_ramp.py"
+        cmd = [
+            sys.executable, str(script),
+            "--target-ip", self.broker_ip,
+            "--duration", str(self.phase_duration),
+            "--interval", "2.0",
+            "--step", "0.8",
+            "--advanced-mode"
+        ]
+        t0 = time.time()
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.countdown(self.phase_duration, "FDI_RAMP")
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            proc.kill()
+        t1 = time.time()
+        self.record_phase("FDI_RAMP", t0, t1, "Stealth monotonic voltage drift to bypass threshold checks")
 
         # -------------------------------------------------------------
         # SUMMARY & MANIFEST EXPORT

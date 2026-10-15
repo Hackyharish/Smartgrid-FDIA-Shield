@@ -38,13 +38,16 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 class AutomatedAttackSuite:
-    def __init__(self, broker_ip: str, esp32_ip: str, modbus_port: int = 5020, quick_mode: bool = False):
+    def __init__(self, broker_ip: str, esp32_ip: str, modbus_port: int = 5020, quick_mode: bool = False, cooldown: int = None):
         self.broker_ip = broker_ip
         self.esp32_ip = esp32_ip
         self.modbus_port = modbus_port
         self.quick = quick_mode
         self.phase_duration = 20 if quick_mode else 45
-        self.cooldown_duration = 10 if quick_mode else 15
+        if cooldown is not None:
+            self.cooldown_duration = cooldown
+        else:
+            self.cooldown_duration = 20 if quick_mode else 30
         
         self.cmd_topic = "smartgrid/node01/cmd"
         self.mqtt_client = None
@@ -53,7 +56,10 @@ class AutomatedAttackSuite:
 
     def _setup_mqtt(self):
         try:
-            self.mqtt_client = mqtt.Client(client_id="kali_attack_automator")
+            try:
+                self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="kali_attack_automator")
+            except AttributeError:
+                self.mqtt_client = mqtt.Client(client_id="kali_attack_automator")
             self.mqtt_client.connect(self.broker_ip, 1883, keepalive=60)
             self.mqtt_client.loop_start()
             print(f"[+] MQTT connected to broker {self.broker_ip}:1883")
@@ -317,13 +323,15 @@ def main():
     parser.add_argument("--esp32", default="10.54.192.251", help="ESP32 Sensor IP")
     parser.add_argument("--port", type=int, default=5020, help="Modbus TCP Port")
     parser.add_argument("--quick", action="store_true", help="Quick run mode (20s per attack instead of 45s)")
+    parser.add_argument("--cooldown", type=int, default=None, help="Seconds to wait between attacks for Pi recovery (default: 30s)")
     args = parser.parse_args()
 
     suite = AutomatedAttackSuite(
         broker_ip=args.broker,
         esp32_ip=args.esp32,
         modbus_port=args.port,
-        quick_mode=args.quick
+        quick_mode=args.quick,
+        cooldown=args.cooldown
     )
     suite.run_all()
 

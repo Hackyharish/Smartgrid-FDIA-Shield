@@ -77,7 +77,10 @@ class AttackManager:
         if mqtt is None:
             return
         try:
-            self.mqtt_client = mqtt.Client(client_id='attack_controller')
+            try:
+                self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id='attack_controller')
+            except AttributeError:
+                self.mqtt_client = mqtt.Client(client_id='attack_controller')
             self.mqtt_client.connect(BROKER_IP, BROKER_PORT, keepalive=60)
             self.mqtt_client.loop_start()
             print(f"[MQTT] Connected to broker at {BROKER_IP}:{BROKER_PORT}")

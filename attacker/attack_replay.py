@@ -229,6 +229,7 @@ def replay_packet(capture_result, duration: int = 60, interval: float = 5.0):
 # ═══════════════════════════════════════════════════════
 
 def main():
+    global BROKER_IP, ESP32_IP
     parser = argparse.ArgumentParser(
         description="SmartGrid Replay Attack Simulator (Research Only)",
         epilog="MUST be run with sudo on Linux. Lab network only."
@@ -246,7 +247,6 @@ def main():
     
     args = parser.parse_args()
     
-    global BROKER_IP, ESP32_IP
     BROKER_IP = args.target_ip
     ESP32_IP = args.esp32_ip
     

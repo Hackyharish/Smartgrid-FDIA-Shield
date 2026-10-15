@@ -61,6 +61,7 @@ class FDIDetector:
         
         # Sequence tracking for replay detection
         self.last_seq = {}
+        self._jump_streak = {}
         self.seq_reboot_grace = 3  # Allow seq reset after reboot
         
         # Suspicious streak tracking
@@ -118,7 +119,7 @@ class FDIDetector:
         ml_score = self._ml_check(payload)
         
         # 4. Replay detection
-        replay_detected = self._replay_check(payload)
+        replay_detected = self._replay_check(payload, hmac_valid=(hmac_score == 0.0))
         
         # 5. Weighted fusion
         confidence = (
@@ -343,7 +344,7 @@ class FDIDetector:
             logger.error(f"ML check failed: {e}")
             return 0.0
 
-    def _replay_check(self, payload) -> bool:
+    def _replay_check(self, payload, hmac_valid: bool = True) -> bool:
         """Detect replay attacks via sequence number analysis."""
         node = payload.get('node_id', self.node_id)
         seq = payload.get('seq', payload.get('sequence', None))
@@ -361,12 +362,35 @@ class FDIDetector:
         if seq < 10 and last_seq > 50:
             logger.info(f"ESP32 reboot / sequence reset detected for {node}: {last_seq} -> {seq}")
             self.last_seq[node] = seq
+            self._jump_streak.pop(node, None)
             return False
             
-        # 2. Sequence jump from injected packet (e.g. attacker sends seq=1000 while node is at 35)
-        if seq > last_seq + 30:
-            logger.warning(f"Abnormal sequence jump detected for {node}: {last_seq} -> {seq}. Injected packet.")
-            # Do NOT update self.last_seq with untrusted injection jump!
+        # 2. Sequence progression (seq > last_seq):
+        if seq > last_seq:
+            jump = seq - last_seq
+            if jump > 30:
+                # If HMAC is valid, the node simply continued incrementing during cooldown/silence
+                if hmac_valid:
+                    logger.info(f"Telemetry stream synchronized for {node} after cooldown ({last_seq} -> {seq}).")
+                    self.last_seq[node] = seq
+                    self._jump_streak.pop(node, None)
+                    return False
+                
+                # If packet has invalid HMAC, verify consecutive progression before accepting
+                streak = self._jump_streak.get(node, (0, 0))
+                if streak[0] + 1 == seq and streak[1] >= 2:
+                    logger.info(f"Consecutive stream confirmed for {node}: advancing tracker to {seq}.")
+                    self.last_seq[node] = seq
+                    self._jump_streak.pop(node, None)
+                    return False
+                else:
+                    self._jump_streak[node] = (seq, streak[1] + 1 if streak[0] + 1 == seq else 1)
+                    logger.warning(f"Abnormal sequence jump detected for {node}: {last_seq} -> {seq}. Injected packet.")
+                    return False
+            
+            # Normal sequential progression
+            self.last_seq[node] = seq
+            self._jump_streak.pop(node, None)
             return False
             
         # 3. True replay: identical sequence number or replayed recent packet (within 30 packets)
@@ -377,10 +401,9 @@ class FDIDetector:
         if (last_seq - seq) > 30:
             logger.info(f"Resetting poisoned sequence tracker for {node}: {last_seq} -> {seq}")
             self.last_seq[node] = seq
+            self._jump_streak.pop(node, None)
             return False
             
-        # Legitimate sequence progression
-        self.last_seq[node] = seq
         return False
 
     def _update_history(self, payload):

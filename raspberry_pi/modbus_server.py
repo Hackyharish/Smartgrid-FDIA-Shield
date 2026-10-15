@@ -34,7 +34,7 @@ class ModbusServer:
         self.running = False
         self.server_thread = None
         self.sock = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
         # Modbus Storage Maps:
         # Holding Registers (16-bit unsigned/signed integers) - Address 0 to 19 (40001 to 40020)
@@ -154,6 +154,8 @@ class ModbusServer:
                 # Automatic Circuit Breaker Trip if auto-isolation enabled
                 if self.coils[1] and conf >= 0.85:
                     self.trip_breaker(f"FDIA Severe ({conf*100:.1f}%)")
+                elif status_str == 'NORMAL' and not self.coils[0]:
+                    self.close_breaker()
 
     def _run_server(self):
         """Socket listener for incoming Modbus TCP connections."""

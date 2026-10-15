@@ -108,19 +108,15 @@ def run_startup_assertions():
 def heal_network_link(target_ip: str, target_mac: str = None):
     """Autonomously pins and refreshes static ARP entry on Raspberry Pi so real ESP32 communicates continuously."""
     mac = target_mac or globals().get('EXPECTED_NODE_MAC', 'a0:b7:65:23:14:08')
+    prefix = [] if (hasattr(os, 'geteuid') and os.geteuid() == 0) else ['sudo']
     try:
-        subprocess.run(['sudo', 'ip', 'neigh', 'replace', target_ip, 'lladdr', mac, 'nud', 'permanent', 'dev', 'wlan0'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+        subprocess.run(prefix + ['ip', 'neigh', 'replace', target_ip, 'lladdr', mac, 'nud', 'permanent', 'dev', 'wlan0'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
     except Exception:
         pass
     try:
-        subprocess.run(['sudo', 'arp', '-s', target_ip, mac],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-    except Exception:
-        pass
-    try:
-        subprocess.run(['ping', '-c', '1', '-W', '1', target_ip],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+        subprocess.run(prefix + ['arp', '-s', target_ip, mac],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
     except Exception:
         pass
 

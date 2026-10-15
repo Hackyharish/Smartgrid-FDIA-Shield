@@ -40,7 +40,7 @@ class DatabaseManager:
             # Enable WAL mode and NORMAL synchronous for 100x faster concurrent commits
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=NORMAL")
-            self._lock = threading.Lock()
+            self._lock = threading.RLock()
             self._create_tables()
             logger.info(f"Database initialized at {self.db_path}")
         except sqlite3.Error as e:

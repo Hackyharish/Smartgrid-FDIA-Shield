@@ -364,34 +364,52 @@ class FDIDetector:
         return float(np.clip(combined, 0.0, 1.0))
 
     def _ml_check(self, payload) -> float:
-        """Isolation Forest anomaly score with load-invariance."""
+        """
+        Cyber-Physical Machine Learning Anomaly Score.
+        Combines Isolation Forest tree density score with feature boundary deviations.
+        """
+        v = float(payload.get('voltage_V', payload.get('voltage_v', 230.0)))
+        f = float(payload.get('frequency_Hz', payload.get('frequency_hz', 50.0)))
+        p = float(payload.get('power_W', payload.get('power_w', 0.0)))
+        i = float(payload.get('current_A', payload.get('current_a', 0.0)))
+        pf = float(payload.get('power_factor', 1.0))
+        
+        # 1. Feature boundary deviation score
+        v_dev = 0.0
+        if v < 200.0 or v > 260.0:
+            v_dev = min(1.0, abs(v - 230.0) / 40.0)
+        elif v < 225.0 or v > 235.0:
+            v_dev = min(0.3, abs(v - 230.0) / 30.0)
+
+        f_dev = min(1.0, abs(f - 50.0) / 1.0) if (f < 49.5 or f > 50.5) else 0.0
+        
+        exp_p = v * i * max(0.01, pf)
+        pwr_err = abs(p - exp_p) / max(p, 1.0)
+        p_dev = min(1.0, pwr_err / 0.25) if pwr_err > 0.10 else 0.0
+
+        phys_ml_score = max(v_dev, f_dev, p_dev)
+
         if self.iso_forest is None or not SKLEARN_AVAILABLE:
-            # Fallback distance if sklearn/model not loaded
-            v = float(payload.get('voltage_V', payload.get('voltage_v', 230.0)))
-            f = float(payload.get('frequency_Hz', payload.get('frequency_hz', 50.0)))
-            p = float(payload.get('power_W', payload.get('power_w', 0.0)))
-            i = float(payload.get('current_A', payload.get('current_a', 0.0)))
-            pf = float(payload.get('power_factor', 1.0))
-            exp_p = v * i * max(0.01, pf)
-            pwr_err = abs(p - exp_p) / max(p, 1.0)
-            v_dev = abs(v - 230.0) / 15.0
-            return float(np.clip(max(v_dev, pwr_err), 0.0, 1.0))
-            
+            return float(np.clip(phys_ml_score, 0.0, 1.0))
+
         try:
             X = np.array([self._extract_ml_features(payload)])
             decision = self.iso_forest.decision_function(X)[0]
             
-            # Inlier: decision >= 0 -> score 0.0 (completely normal)
-            # Outlier: decision < 0 -> score proportional to deviation
-            if decision >= 0.0:
-                if decision < 0.04:
-                    return float(np.clip((0.04 - decision) * 2.5, 0.0, 0.15))
-                return 0.0
+            # Baseline clean training data produces decision ~0.207.
+            # Decision drops as features deviate:
+            if decision >= 0.195:
+                if_score = 0.0
+            elif decision >= 0.0:
+                if_score = float(np.clip((0.195 - decision) / 0.195 * 0.5, 0.0, 0.5))
             else:
-                return float(np.clip(-decision / 0.10, 0.0, 1.0))
+                if_score = float(np.clip(0.5 + (-decision / 0.10) * 0.5, 0.5, 1.0))
+
+            combined_score = max(if_score, phys_ml_score)
+            return float(np.clip(combined_score, 0.0, 1.0))
         except Exception as e:
             logger.error(f"ML check failed: {e}")
-            return 0.0
+            return float(np.clip(phys_ml_score, 0.0, 1.0))
 
     def _replay_check(self, payload, hmac_valid: bool = True) -> bool:
         """Detect replay attacks via sequence number analysis."""

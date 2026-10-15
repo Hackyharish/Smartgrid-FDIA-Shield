@@ -170,7 +170,11 @@ class ModbusServer:
                 self.holding_registers[9] = 1 if state_est.get('bad_data_detected') else 0
 
             # Detection fusion results
-            if detection:
+            if time.time() < self.tamper_hold_until:
+                # Under active Modbus tamper hold: lock SCADA alarm registers
+                self.holding_registers[10] = 2  # ATTACK_CONFIRMED
+                self.holding_registers[11] = 10000  # 100.00%
+            elif detection:
                 status_str = detection.get('status', 'NORMAL')
                 status_code = 0 if status_str == 'NORMAL' else (1 if status_str == 'SUSPICIOUS' else 2)
                 # 40011: Fusion Status Code
@@ -183,7 +187,7 @@ class ModbusServer:
                 # Automatic Circuit Breaker Trip if auto-isolation enabled
                 if self.coils[1] and conf >= 0.85:
                     self.trip_breaker(f"FDIA Severe ({conf*100:.1f}%)")
-                elif status_str == 'NORMAL' and not self.coils[0]:
+                elif status_str == 'NORMAL' and not self.coils[0] and not getattr(self, 'breaker_manual_trip', False):
                     self.close_breaker()
 
     def _run_server(self):
@@ -191,10 +195,20 @@ class ModbusServer:
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if hasattr(socket, 'SO_REUSEPORT'):
+                try:
+                    self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                except Exception:
+                    pass
             self.sock.bind((self.host, self.port))
             self.sock.listen(5)
             self.sock.settimeout(1.0)
+            print(f"[MODBUS] Substation Modbus TCP Gateway listening on {self.host}:{self.port} ✓")
         except Exception as e:
+            ts = datetime.now().strftime('%H:%M:%S')
+            print(f"\n[{ts}][!][MODBUS BIND ERROR] Failed to bind port {self.port}: {e}")
+            print(f"[{ts}][!] Port {self.port} is already in use by another process!")
+            print(f"[{ts}][!] Run: 'sudo fuser -k {self.port}/tcp' on the Pi to release port, then restart.\n")
             logger.error(f"Failed to bind Modbus TCP server on port {self.port}: {e}")
             self.running = False
             return
@@ -284,6 +298,10 @@ class ModbusServer:
                     self.coils[coil_addr] = new_state
                     ts = datetime.now().strftime('%H:%M:%S')
                     if coil_addr == 0 and not new_state:
+                        self.breaker_manual_trip = True
+                        self.holding_registers[10] = 2  # ATTACK_CONFIRMED
+                        self.holding_registers[11] = 10000  # 100.00%
+                        self.tamper_hold_until = time.time() + 15.0
                         print(f"\n[{ts}][!][SCADA SECURITY ALERT] UNAUTHORIZED CIRCUIT BREAKER TRIP ATTACK!")
                         print(f"[{ts}][SCADA IDS] Malicious Modbus FC05 forced Coil 00001 -> OPEN (Feeder De-energized)!\n")
                         self.tamper_events.append({
@@ -294,6 +312,7 @@ class ModbusServer:
                             'timestamp': time.time()
                         })
                     elif coil_addr == 0 and new_state:
+                        self.breaker_manual_trip = False
                         print(f"[{ts}][SCADA NOTIFY] Circuit Breaker Coil 00001 Re-Closed -> Feeder Re-Energized.")
                     logger.info(f"Modbus SCADA Command: Coil {coil_addr+1} set to {self.coils[coil_addr]}")
                 return bytes([5]) + data[:4]
@@ -304,7 +323,9 @@ class ModbusServer:
                 if reg_addr < len(self.holding_registers):
                     self.holding_registers[reg_addr] = reg_val
                     self.tampered_registers[reg_addr] = reg_val
-                    self.tamper_hold_until = time.time() + 8.0  # Hold for 8s to guarantee visibility
+                    self.holding_registers[10] = 2  # ATTACK_CONFIRMED
+                    self.holding_registers[11] = 10000  # 100.00%
+                    self.tamper_hold_until = time.time() + 15.0  # Hold for 15s to guarantee visibility
                     
                     if reg_addr == 0:
                         phys_str = f"Voltage = {reg_val / 10.0:.1f} V"

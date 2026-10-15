@@ -479,6 +479,9 @@ def main():
     logger.info("Initializing Modbus TCP Server...")
     modbus = ModbusServer(host=MODBUS_HOST, port=MODBUS_PORT)
     modbus.start()
+    time.sleep(0.05)
+    if not modbus.running:
+        print(f"[!] WARNING: Modbus TCP Server failed to bind port {MODBUS_PORT}. Check for port conflict.")
 
     # Seed initial clean baseline in InfluxDB so Grafana immediately renders NORMAL status
     influxdb.write_detection({
@@ -600,6 +603,13 @@ def main():
                     confidence=1.0
                 )
                 print(f"[{ts}][{NODE_ID}] [ATTACK DETECTED: {event_type}] | ML=0.85 (conf: 1.0) -> RECOVERING")
+                forecast = recovery.predict_state(node_id=NODE_ID)
+                modbus.update_registers(
+                    telemetry=forecast,
+                    detection=det_modbus,
+                    state_est=None,
+                    pmu=None
+                )
                 
     except Exception as e:
         logger.critical(f"Critical error in main loop: {e}", exc_info=True)

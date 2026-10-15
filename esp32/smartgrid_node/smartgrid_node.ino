@@ -42,9 +42,9 @@ const int PUBLISH_INTERVAL_MS = 1000;
 
 // Static IP Configuration on Hotspot Subnet
 IPAddress staticIP(10, 54, 192, 251);
-IPAddress gateway(10, 54, 192, 1);
+IPAddress gateway(10, 54, 192, 180);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress dns(10, 54, 192, 1);
+IPAddress dns(10, 54, 192, 180);
 
 const char* MQTT_TOPIC_PUB = "smartgrid/node01/telemetry";
 const char* MQTT_TOPIC_SUB = "smartgrid/node01/cmd";

@@ -86,7 +86,10 @@ def verify_payload_hmac(payload_dict: Dict[str, Any]) -> Dict[str, Any]:
         
         if received_hmac is None or not str(received_hmac).strip():
             result['hmac_missing'] = True
-            logger.warning("HMAC field is missing or empty in the payload.")
+            now = time.time()
+            if now - getattr(verify_payload_hmac, '_last_missing_warn', 0.0) >= 3.0:
+                verify_payload_hmac._last_missing_warn = now
+                logger.warning("HMAC field is missing or empty in the payload.")
         else:
             result['hmac_missing'] = False
 

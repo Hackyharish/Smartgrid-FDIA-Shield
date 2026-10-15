@@ -164,11 +164,23 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
     # Check if DoS detector has flagged this IP
     if dos_detector.is_blocked(src_ip):
         stats['dos_events'] += 1
+        now = time.time()
+        if now - getattr(process_payload, '_last_dos_blocked_log', 0.0) >= 2.0:
+            process_payload._last_dos_blocked_log = now
+            ts = datetime.now().strftime('%H:%M:%S')
+            print(f"[{ts}][DoS FIREWALL DROP] Dropping traffic from blocked IP {src_ip} (Total dropped: {stats['dos_events']})")
         return
 
     # Fast drop for unauthorized fake node floods without valid HMAC
     if payload.get('node_id') != NODE_ID and payload.get('hmac_missing', False):
         stats['dos_events'] += 1
+        dos_detector.record_message(src_ip if src_ip != 'UNKNOWN' else 'UNAUTHORIZED_FLOOD')
+        now = time.time()
+        if now - getattr(process_payload, '_last_fake_flood_log', 0.0) >= 2.0:
+            process_payload._last_fake_flood_log = now
+            ts = datetime.now().strftime('%H:%M:%S')
+            sender_str = f"from {src_ip}" if src_ip != 'UNKNOWN' else "flood traffic"
+            print(f"[{ts}][DoS DEFENSE] Unauthorized node flood ({sender_str}) without HMAC -> DROPPING PACKETS (Total dropped: {stats['dos_events']})")
         return
     
     # 1. Insert raw telemetry to DB (audit trail)

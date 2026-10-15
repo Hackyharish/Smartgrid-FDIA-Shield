@@ -113,7 +113,7 @@ DOS_RATE_WINDOW_S = int(os.getenv('DOS_RATE_WINDOW_S', '10'))
 DOS_WARNING_RATE = int(os.getenv('DOS_WARNING_RATE', '10'))       # msg/s per IP
 DOS_CRITICAL_RATE = int(os.getenv('DOS_CRITICAL_RATE', '20'))     # msg/s per IP → block
 DOS_BLOCK_DURATION_S = int(os.getenv('DOS_BLOCK_DURATION_S', '300'))
-DOS_ENABLE_IPTABLES = os.getenv('DOS_ENABLE_IPTABLES', 'false').lower() in ('true', '1', 'yes')
+DOS_ENABLE_IPTABLES = os.getenv('DOS_ENABLE_IPTABLES', 'true').lower() in ('true', '1', 'yes')
 
 # ═══════════════════════════════════════════════════════
 # InfluxDB Settings (for Grafana dashboards)

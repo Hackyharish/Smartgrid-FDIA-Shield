@@ -16,6 +16,7 @@ import logging
 import time
 import threading
 import subprocess
+from datetime import datetime
 from collections import defaultdict, deque
 
 # Import configuration settings
@@ -145,10 +146,14 @@ class DoSDetector:
                     if ip not in self.whitelist:
                         self._apply_block(ip, rate)
                     else:
+                        ts = datetime.now().strftime('%H:%M:%S')
+                        print(f"[{ts}][DoS WARNING] High rate from whitelisted IP {ip}: {rate:.1f} msg/s")
                         logger.warning(f"CRITICAL DoS rate from whitelisted IP {ip}: {rate:.2f} msg/s")
                 elif rate >= self.warning_rate:
                     if ip not in self.whitelist:
                         self.total_warnings += 1
+                        ts = datetime.now().strftime('%H:%M:%S')
+                        print(f"[{ts}][DoS WARNING] High message rate from {ip}: {rate:.1f} msg/s (threshold: {self.warning_rate} msg/s)")
                         logger.warning(f"WARNING DoS rate from IP {ip}: {rate:.2f} msg/s")
 
     def _apply_block(self, ip, rate):
@@ -161,20 +166,24 @@ class DoSDetector:
         if ip in self.message_history:
             del self.message_history[ip]
             
+        ts = datetime.now().strftime('%H:%M:%S')
+        print(f"[{ts}][DoS CRITICAL] DoS ATTACK CONFIRMED! IP: {ip} | Rate: {rate:.1f} msg/s -> BLOCKING for {self.block_duration}s")
         logger.critical(f"DoS ATTACK DETECTED! Blocking IP {ip}. Rate: {rate:.2f} msg/s. Duration: {self.block_duration}s.")
         
-        if self.enable_iptables:
+        if self.enable_iptables and ip != 'UNAUTHORIZED_FLOOD':
             try:
-                # Require sudo/root privileges or CAP_NET_ADMIN
-                cmd = ["sudo", "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"]
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
-                logger.info(f"Successfully added iptables drop rule for {ip}.")
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to add iptables rule for {ip}. Error: {e.stderr}")
-            except FileNotFoundError:
-                logger.error("iptables command not found. Cannot block IP.")
+                check_cmd = ["sudo", "iptables", "-C", "INPUT", "-s", ip, "-j", "DROP"]
+                res = subprocess.run(check_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if res.returncode != 0:
+                    cmd = ["sudo", "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"]
+                    subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    print(f"[{ts}][DoS FIREWALL] Linux iptables DROP rule applied for {ip}.")
+                    logger.info(f"Successfully added iptables drop rule for {ip}.")
+            except Exception as e:
+                logger.error(f"Failed to add iptables rule for {ip}: {e}")
         else:
-            logger.info(f"iptables blocking is disabled in config. IP {ip} flagged but not blocked at OS level.")
+            if not self.enable_iptables:
+                print(f"[{ts}][DoS FIREWALL] Gateway-layer packet drop active for {ip}.")
 
     def _process_unblocks(self):
         """Unblocks IPs whose block duration has expired."""
@@ -190,14 +199,16 @@ class DoSDetector:
                 del self.blocked_ips[ip]
                 
         for ip in unblock_list:
+            ts = datetime.now().strftime('%H:%M:%S')
+            print(f"[{ts}][DoS UNBLOCK] Cooldown expired. Unblocked IP {ip}.")
             logger.info(f"Block duration expired for {ip}. Unblocking.")
-            if self.enable_iptables:
+            if self.enable_iptables and ip != 'UNAUTHORIZED_FLOOD':
                 try:
                     cmd = ["sudo", "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"]
-                    subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     logger.info(f"Successfully removed iptables drop rule for {ip}.")
-                except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to remove iptables rule for {ip}. Error: {e.stderr}")
+                except Exception as e:
+                    logger.error(f"Failed to remove iptables rule for {ip}: {e}")
 
     def is_blocked(self, ip: str) -> bool:
         """Returns True if the source IP is currently blocked."""

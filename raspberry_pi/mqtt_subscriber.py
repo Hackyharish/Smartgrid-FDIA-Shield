@@ -144,7 +144,7 @@ class MQTTSubscriber:
 
     def _on_message(self, client, userdata, msg):
         """Process incoming MQTT messages."""
-        recv_timestamp = int(time.time())
+        recv_timestamp = time.time()
         self.stats['messages_received'] += 1
         
         # Handle alert messages separately
@@ -256,23 +256,28 @@ class MQTTSubscriber:
             now = time.time()
             with self._packet_lock:
                 self._recent_packets.append((now, src_ip))
-                # Keep only last 100 entries
-                if len(self._recent_packets) > 100:
-                    self._recent_packets = self._recent_packets[-100:]
+                # Keep last 500 entries to cover high-speed floods
+                if len(self._recent_packets) > 500:
+                    self._recent_packets = self._recent_packets[-500:]
 
-    def _resolve_src_ip(self, mqtt_timestamp: int) -> Optional[str]:
+    def _resolve_src_ip(self, mqtt_timestamp: float) -> Optional[str]:
         """Cross-reference MQTT message timestamp with Scapy sniffer data."""
         with self._packet_lock:
             if not self._recent_packets:
                 return None
-            # Find the packet closest in time to the MQTT message (within 1 second)
+            # Find the packet closest in time to the MQTT message (within 1.5 seconds)
             best_ip = None
             best_delta = float('inf')
             for pkt_time, pkt_ip in reversed(self._recent_packets):
                 delta = abs(pkt_time - mqtt_timestamp)
-                if delta < best_delta and delta < 1.0:
+                if delta < best_delta and delta < 1.5:
                     best_delta = delta
                     best_ip = pkt_ip
+            # Flood fallback: If packet rate is high and no exact timestamp match, return latest external IP
+            if not best_ip and self._recent_packets:
+                for _, pkt_ip in reversed(self._recent_packets):
+                    if pkt_ip not in ('127.0.0.1', 'localhost'):
+                        return pkt_ip
             return best_ip
 
     def get_stats(self) -> dict:

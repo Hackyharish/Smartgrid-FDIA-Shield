@@ -276,6 +276,7 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             'fingerprint_score': fp_score,
             'physics_violations': phys_viols,
             'compromised_parameters': list(phys_viols.keys()),
+            'telemetry_id': telemetry_id,
         }
         detection_id = db.insert_detection_result(detection_result)
         
@@ -337,6 +338,7 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
         fingerprint_score=fp_score,
         fingerprint_verdict=fp_verdict,
     )
+    detection_result['telemetry_id'] = telemetry_id
     detection_id = db.insert_detection_result(detection_result)
     
     # 6. Handle result

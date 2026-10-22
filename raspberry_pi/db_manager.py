@@ -285,6 +285,14 @@ class DatabaseManager:
         try:
             with self._lock:
                 cursor = self.conn.cursor()
+                v_val = payload_dict.get('voltage_V', payload_dict.get('voltage_v'))
+                i_val = payload_dict.get('current_A', payload_dict.get('current_a'))
+                p_val = payload_dict.get('power_W', payload_dict.get('power_w'))
+                e_val = payload_dict.get('energy_Wh', payload_dict.get('energy_wh', payload_dict.get('energy_kWh')))
+                f_val = payload_dict.get('frequency_Hz', payload_dict.get('frequency_hz', 50.0))
+                pf_val = payload_dict.get('power_factor', payload_dict.get('pf', 1.0))
+                rssi_val = payload_dict.get('rssi_dBm', payload_dict.get('rssi_dbm', -55))
+
                 cursor.execute("""
                     INSERT INTO raw_telemetry (
                         node_id, timestamp, voltage_v, current_a, power_w,
@@ -295,14 +303,14 @@ class DatabaseManager:
                 """, (
                     payload_dict.get('node_id'),
                     payload_dict.get('timestamp'),
-                    payload_dict.get('voltage_v'),
-                    payload_dict.get('current_a'),
-                    payload_dict.get('power_w'),
-                    payload_dict.get('energy_wh'),
-                    payload_dict.get('frequency_hz'),
-                    payload_dict.get('power_factor'),
+                    v_val,
+                    i_val,
+                    p_val,
+                    e_val,
+                    f_val,
+                    pf_val,
                     payload_dict.get('alarm'),
-                    payload_dict.get('rssi_dbm'),
+                    rssi_val,
                     payload_dict.get('crc_errors'),
                     payload_dict.get('seq'),
                     payload_dict.get('hmac'),

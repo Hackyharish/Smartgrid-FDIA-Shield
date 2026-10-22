@@ -396,7 +396,7 @@ class TestRunner:
         if auto_plot:
             try:
                 from analysis import SmartGridAnalyzer
-                print("\n[ANALYZER] Automatically generating all 11 scientific plots from test run...")
+                print("\n[ANALYZER] Automatically generating all 12 scientific plots and ML parameters from test run...")
                 analyzer = SmartGridAnalyzer()
                 analyzer.generate_all_plots(since_timestamp=overall_start)
                 analyzer.close()

@@ -84,8 +84,51 @@ class SmartGridAnalyzer:
     def __init__(self, db_path=None, output_dir=None):
         self.db = DatabaseManager(db_path or DB_PATH)
         self.output_dir = Path(output_dir) if output_dir else RESULTS_DIR
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(self.output_dir, 0o777)
+        except Exception:
+            pass
         apply_white_contrast_theme()
+
+    def _save_figure(self, fig_or_plt, filepath, **kwargs):
+        """Safely save figure handling permission errors and unlinking existing files."""
+        target = Path(filepath)
+        try:
+            if target.exists():
+                try:
+                    os.chmod(target, 0o666)
+                except Exception:
+                    pass
+                try:
+                    target.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        save_kwargs = {'bbox_inches': 'tight', 'dpi': 300}
+        save_kwargs.update(kwargs)
+
+        try:
+            if hasattr(fig_or_plt, 'savefig'):
+                fig_or_plt.savefig(target, **save_kwargs)
+            else:
+                plt.savefig(target, **save_kwargs)
+            try:
+                os.chmod(target, 0o666)
+            except Exception:
+                pass
+        except PermissionError:
+            alt_path = target.with_name(f"{target.stem}_latest{target.suffix}")
+            try:
+                if hasattr(fig_or_plt, 'savefig'):
+                    fig_or_plt.savefig(alt_path, **save_kwargs)
+                else:
+                    plt.savefig(alt_path, **save_kwargs)
+                print(f"  [WARN] Permission denied on {target.name}. Saved to {alt_path.name}")
+            except Exception as e:
+                print(f"  [ERROR] Failed to save {target.name}: {e}")
     
     def generate_all_plots(self, since_timestamp=0):
         """Generate all 11 plots and export CSV from stored database records."""
@@ -239,7 +282,7 @@ class SmartGridAnalyzer:
         axes[2].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_01_vip_timeseries.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_01_vip_timeseries.png')
         plt.close()
         print('  [+] Plot 1: V/I/P Raw vs Recovered Time-Series')
 
@@ -285,7 +328,7 @@ class SmartGridAnalyzer:
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_02_confidence_timeline.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_02_confidence_timeline.png')
         plt.close()
         print('  ✓ Plot 2: Attack Confidence Timeline')
 
@@ -335,7 +378,7 @@ class SmartGridAnalyzer:
         ax.grid(True)
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_03_roc_curve.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_03_roc_curve.png')
         plt.close()
         print(f'  ✓ Plot 3: ROC Curve (AUC = {abs(auc):.3f})')
 
@@ -403,7 +446,7 @@ class SmartGridAnalyzer:
         axes[1].grid(True)
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_04_recovery_accuracy.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_04_recovery_accuracy.png')
         plt.close()
         print('  ✓ Plot 4: Recovery Accuracy')
 
@@ -445,7 +488,7 @@ class SmartGridAnalyzer:
         ax.grid(True, axis='y')
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_05_detector_comparison.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_05_detector_comparison.png')
         plt.close()
         print('  ✓ Plot 5: 5-Signal Detector Comparison Boxplot')
 
@@ -480,7 +523,7 @@ class SmartGridAnalyzer:
         ax.set_title(f'Detection Confusion Matrix\nPrecision={prec:.1%}, Recall={rec:.1%}, F1={f1:.3f}', fontsize=13, fontweight='bold')
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_06_confusion_matrix.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_06_confusion_matrix.png')
         plt.close()
         print(f'  ✓ Plot 6: Confusion Matrix (TP={tp}, FP={fp}, FN={fn}, TN={tn})')
 
@@ -514,7 +557,7 @@ class SmartGridAnalyzer:
 
         ax.set_title('SmartGrid FDIA Shield — Attack Type Classification Breakdown', fontsize=13, fontweight='bold')
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_07_attack_type_pie.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_07_attack_type_pie.png')
         plt.close()
         print('  ✓ Plot 7: Attack Type Pie Chart')
 
@@ -544,7 +587,7 @@ class SmartGridAnalyzer:
         cbar.set_label('Layer Anomaly Score (0.0=Clean, 1.0=Severe Anomaly)', fontweight='bold')
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_08_detector_heatmap.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_08_detector_heatmap.png')
         plt.close()
         print('  ✓ Plot 8: Multi-Signal Heatmap')
 
@@ -591,7 +634,7 @@ class SmartGridAnalyzer:
         axes[2].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_09_ip_spoof_detail.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_09_ip_spoof_detail.png')
         plt.close()
         print('  ✓ Plot 9: IP Spoof Cross-Layer Detail')
 
@@ -616,7 +659,7 @@ class SmartGridAnalyzer:
         ax.grid(True)
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_10_fingerprint_distribution.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_10_fingerprint_distribution.png')
         plt.close()
         print('  ✓ Plot 10: Fingerprint Distribution Histogram')
 
@@ -665,7 +708,7 @@ class SmartGridAnalyzer:
         axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
 
         plt.tight_layout()
-        plt.savefig(self.output_dir / 'plot_11_synchrophasor_pmu_angle.png', bbox_inches='tight', dpi=300)
+        self._save_figure(plt, self.output_dir / 'plot_11_synchrophasor_pmu_angle.png')
         plt.close()
         print('  ✓ Plot 11: Virtual PMU Synchrophasor & Frequency')
 
@@ -836,7 +879,7 @@ class SmartGridAnalyzer:
 
         plt.tight_layout()
         save_path = self.output_dir / 'plot_12_ml_training_evaluation.png'
-        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        self._save_figure(plt, save_path)
         plt.close()
         print(f'  [+] Plot 12: Isolation Forest ML Training & Parameter Evaluation saved to: {save_path.name}')
 
@@ -868,9 +911,22 @@ class SmartGridAnalyzer:
             }
         }
         json_path = self.output_dir / 'ml_training_parameters.json'
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(params_meta, f, indent=2)
-        print(f'  [+] ML training parameters exported to: {json_path.name}')
+        try:
+            if json_path.exists():
+                os.chmod(json_path, 0o666)
+                json_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(params_meta, f, indent=2)
+            try:
+                os.chmod(json_path, 0o666)
+            except Exception:
+                pass
+            print(f'  [+] ML training parameters exported to: {json_path.name}')
+        except Exception as e:
+            print(f'  [WARN] Failed to write {json_path.name}: {e}')
 
     # ═══════════════════════════════════════════════════════════
     # EXPORT CSV & METRICS SUMMARY
@@ -890,15 +946,28 @@ class SmartGridAnalyzer:
             'data_source', 'recovery_strategy', 'recovery_confidence'
         ]
 
-        with open(csv_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
-            writer.writeheader()
-            for r in records:
-                row = dict(r)
-                row['iso_time'] = parse_timestamp(r.get('timestamp')).strftime('%Y-%m-%d %H:%M:%S')
-                writer.writerow(row)
-        
-        print(f'  ✓ CSV Export saved to: {csv_file}')
+        try:
+            if csv_file.exists():
+                os.chmod(csv_file, 0o666)
+                csv_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        try:
+            with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+                writer.writeheader()
+                for r in records:
+                    row = dict(r)
+                    row['iso_time'] = parse_timestamp(r.get('timestamp')).strftime('%Y-%m-%d %H:%M:%S')
+                    writer.writerow(row)
+            try:
+                os.chmod(csv_file, 0o666)
+            except Exception:
+                pass
+            print(f'  ✓ CSV Export saved to: {csv_file}')
+        except Exception as e:
+            print(f'  [WARN] Failed to write {csv_file.name}: {e}')
 
     def generate_metrics_table(self, detections, since_timestamp=0):
         stats = self.db.get_detection_stats(since_timestamp)
@@ -927,9 +996,23 @@ class SmartGridAnalyzer:
 ╚══════════════════════════════════════════════════╧═══════╝
 """
         print(table)
-        with open(self.output_dir / 'metrics_table.txt', 'w', encoding='utf-8') as f:
-            f.write(table)
-        print('  ✓ Metrics table saved to metrics_table.txt')
+        table_path = self.output_dir / 'metrics_table.txt'
+        try:
+            if table_path.exists():
+                os.chmod(table_path, 0o666)
+                table_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            with open(table_path, 'w', encoding='utf-8') as f:
+                f.write(table)
+            try:
+                os.chmod(table_path, 0o666)
+            except Exception:
+                pass
+            print('  ✓ Metrics table saved to metrics_table.txt')
+        except Exception as e:
+            print(f'  [WARN] Failed to write {table_path.name}: {e}')
 
     def close(self):
         self.db.close()

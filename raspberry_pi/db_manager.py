@@ -33,8 +33,14 @@ class DatabaseManager:
     def __init__(self, db_path=None):
         self.db_path = str(db_path if db_path else DB_PATH)
         
-        # Ensure directory exists
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        # Ensure directory exists with open permissions
+        db_dir = Path(self.db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(str(db_dir), 0o777)
+        except Exception:
+            pass
+
         self._lock = threading.RLock()
         self._connect_and_init()
 
@@ -57,6 +63,13 @@ class DatabaseManager:
                 return
 
             self._create_tables()
+            for ext in ('', '-wal', '-shm'):
+                f = self.db_path + ext
+                if os.path.exists(f):
+                    try:
+                        os.chmod(f, 0o666)
+                    except Exception:
+                        pass
             logger.info(f"Database initialized at {self.db_path}")
         except sqlite3.DatabaseError as e:
             if "malformed" in str(e).lower() or "corrupt" in str(e).lower():

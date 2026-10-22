@@ -12,6 +12,8 @@ import time
 import threading
 import logging
 import os
+import subprocess
+import shutil
 from pathlib import Path
 
 # Try to import DB_PATH from config, fallback if not available
@@ -29,22 +31,113 @@ class DatabaseManager:
     Provides thread-safe write access and multi-threaded read access using WAL.
     """
     def __init__(self, db_path=None):
-        self.db_path = db_path if db_path else DB_PATH
+        self.db_path = str(db_path if db_path else DB_PATH)
         
         # Ensure directory exists
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        
+        self._lock = threading.RLock()
+        self._connect_and_init()
+
+    def _connect_and_init(self):
         try:
-            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
-            # Enable WAL mode and NORMAL synchronous for 100x faster concurrent commits
+            # Enable WAL mode, NORMAL synchronous, and busy timeout for concurrent safety
+            self.conn.execute("PRAGMA busy_timeout=30000")
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=NORMAL")
-            self._lock = threading.RLock()
+            
+            # Quick integrity check
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA quick_check")
+            check_result = cursor.fetchone()
+            if check_result and check_result[0] != "ok":
+                logger.warning(f"Database quick_check returned '{check_result[0]}'. Salvaging...")
+                self._salvage_corrupted_db()
+                return
+
             self._create_tables()
             logger.info(f"Database initialized at {self.db_path}")
-        except sqlite3.Error as e:
-            logger.error(f"Failed to connect to database: {e}")
+        except sqlite3.DatabaseError as e:
+            if "malformed" in str(e).lower() or "corrupt" in str(e).lower():
+                logger.warning(f"Database corruption detected on init ({e}). Auto-salvaging...")
+                self._salvage_corrupted_db()
+            else:
+                logger.error(f"Failed to connect to database: {e}")
+                raise
+
+    def _salvage_corrupted_db(self):
+        """Auto-recovers data from corrupted sqlite file or rebuilds clean schema."""
+        try:
+            if hasattr(self, 'conn') and self.conn:
+                try:
+                    self.conn.close()
+                except Exception:
+                    pass
+
+            db_str = str(self.db_path)
+            corrupt_backup = f"{db_str}.corrupt_{int(time.time())}"
+            recovered_db = f"{db_str}.recovered"
+            
+            logger.warning(f"Backing up corrupted database to: {corrupt_backup}")
+            if os.path.exists(db_str):
+                try:
+                    shutil.copy2(db_str, corrupt_backup)
+                except Exception as e:
+                    logger.warning(f"Could not copy corrupt DB: {e}")
+
+            salvaged = False
+            # Method 1: sqlite3 CLI .recover
+            try:
+                subprocess.run(
+                    f'sqlite3 "{db_str}" ".recover" | sqlite3 "{recovered_db}"',
+                    shell=True, capture_output=True, timeout=15
+                )
+                if os.path.exists(recovered_db) and os.path.getsize(recovered_db) > 0:
+                    salvaged = True
+            except Exception:
+                salvaged = False
+
+            # Method 2: sqlite3 CLI .dump fallback
+            if not salvaged:
+                try:
+                    subprocess.run(
+                        f'sqlite3 "{db_str}" ".dump" | sqlite3 "{recovered_db}"',
+                        shell=True, capture_output=True, timeout=15
+                    )
+                    if os.path.exists(recovered_db) and os.path.getsize(recovered_db) > 0:
+                        salvaged = True
+                except Exception:
+                    salvaged = False
+
+            # Remove corrupted main file and WAL/SHM locks
+            for ext in ('', '-wal', '-shm'):
+                f = db_str + ext
+                if os.path.exists(f):
+                    try:
+                        os.remove(f)
+                    except Exception:
+                        pass
+
+            if salvaged and os.path.exists(recovered_db):
+                try:
+                    shutil.move(recovered_db, db_str)
+                    logger.info(f"Successfully recovered database into {db_str}")
+                except Exception:
+                    pass
+            else:
+                logger.warning(f"Clean database reset initialized at {db_str}")
+
+            # Re-initialize clean connection
+            self.conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA busy_timeout=30000")
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA synchronous=NORMAL")
+            self._create_tables()
+            logger.info("Database recovered and tables verified.")
+        except Exception as err:
+            logger.critical(f"Database salvage failed: {err}", exc_info=True)
             raise
 
     def _create_tables(self):
@@ -496,7 +589,21 @@ class DatabaseManager:
                 ORDER BY timestamp ASC
             """, (since_timestamp,))
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except sqlite3.DatabaseError as e:
+            if "malformed" in str(e).lower() or "corrupt" in str(e).lower():
+                logger.warning(f"Malformed database in get_all_detection_results: {e}. Salvaging...")
+                self._salvage_corrupted_db()
+                try:
+                    cursor = self.conn.cursor()
+                    cursor.execute("""
+                        SELECT * FROM detection_results
+                        WHERE timestamp >= ?
+                        ORDER BY timestamp ASC
+                    """, (since_timestamp,))
+                    return [dict(row) for row in cursor.fetchall()]
+                except Exception as e2:
+                    logger.error(f"Failed query after salvage: {e2}")
+                    return []
             logger.error(f"Error fetching all detection results: {e}")
             return []
 
@@ -510,7 +617,21 @@ class DatabaseManager:
                 ORDER BY timestamp ASC
             """, (since_timestamp,))
             return [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as e:
+        except sqlite3.DatabaseError as e:
+            if "malformed" in str(e).lower() or "corrupt" in str(e).lower():
+                logger.warning(f"Malformed database in get_all_verified_telemetry: {e}. Salvaging...")
+                self._salvage_corrupted_db()
+                try:
+                    cursor = self.conn.cursor()
+                    cursor.execute("""
+                        SELECT * FROM verified_telemetry
+                        WHERE timestamp >= ?
+                        ORDER BY timestamp ASC
+                    """, (since_timestamp,))
+                    return [dict(row) for row in cursor.fetchall()]
+                except Exception as e2:
+                    logger.error(f"Failed query after salvage: {e2}")
+                    return []
             logger.error(f"Error fetching all verified telemetry: {e}")
             return []
 

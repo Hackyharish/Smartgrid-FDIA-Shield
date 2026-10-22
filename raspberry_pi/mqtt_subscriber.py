@@ -27,6 +27,7 @@ application messages and raw TCP packets, relying on timestamp correlation.
 """
 
 import paho.mqtt.client as mqtt
+import os
 import json
 import time
 import queue
@@ -40,7 +41,7 @@ from hmac_verifier import verify_payload_hmac
 logger = logging.getLogger(__name__)
 
 class MQTTSubscriber:
-    def __init__(self, broker_ip: str = '10.59.53.30', broker_port: int = 1883,
+    def __init__(self, broker_ip: str = '127.0.0.1', broker_port: int = 1883,
                  topics: list = None, queue_maxsize: int = 1000):
         """
         MQTT Subscriber with HMAC verification and source IP tracking.
@@ -72,7 +73,7 @@ class MQTTSubscriber:
         self._packet_lock = threading.Lock()
         
         # MQTT client setup
-        self.client = mqtt.Client(client_id='smartgrid_gateway', clean_session=True)
+        self.client = mqtt.Client(client_id=f'smartgrid_gateway_{os.getpid()}', clean_session=True)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
@@ -143,7 +144,7 @@ class MQTTSubscriber:
 
     def _on_message(self, client, userdata, msg):
         """Process incoming MQTT messages."""
-        recv_timestamp = int(time.time())
+        recv_timestamp = time.time()
         self.stats['messages_received'] += 1
         
         # Handle alert messages separately
@@ -185,6 +186,8 @@ class MQTTSubscriber:
         enriched_payload['hmac_missing'] = hmac_result['hmac_missing']
         enriched_payload['mqtt_recv_timestamp'] = recv_timestamp
         enriched_payload['mqtt_src_ip'] = src_ip
+        enriched_payload['src_ip_seen'] = src_ip
+        enriched_payload['_src_ip'] = src_ip
         enriched_payload['mqtt_topic'] = msg.topic
         
         with self._queue_lock:
@@ -196,11 +199,14 @@ class MQTTSubscriber:
             self.payload_queue.put_nowait(enriched_payload)
         except queue.Full:
             self.stats['queue_full_drops'] += 1
-            logger.warning('Payload queue full, dropping oldest entry')
+            now = time.time()
+            if now - getattr(self, '_last_drop_log_time', 0.0) >= 5.0:
+                self._last_drop_log_time = now
+                logger.warning(f'Payload queue full under flood traffic; dropping excess packets (total dropped: {self.stats["queue_full_drops"]})')
             try:
                 self.payload_queue.get_nowait()  # Drop oldest
                 self.payload_queue.put_nowait(enriched_payload)
-            except queue.Empty:
+            except (queue.Empty, queue.Full):
                 pass
         
         # Log
@@ -250,23 +256,28 @@ class MQTTSubscriber:
             now = time.time()
             with self._packet_lock:
                 self._recent_packets.append((now, src_ip))
-                # Keep only last 100 entries
-                if len(self._recent_packets) > 100:
-                    self._recent_packets = self._recent_packets[-100:]
+                # Keep last 500 entries to cover high-speed floods
+                if len(self._recent_packets) > 500:
+                    self._recent_packets = self._recent_packets[-500:]
 
-    def _resolve_src_ip(self, mqtt_timestamp: int) -> Optional[str]:
+    def _resolve_src_ip(self, mqtt_timestamp: float) -> Optional[str]:
         """Cross-reference MQTT message timestamp with Scapy sniffer data."""
         with self._packet_lock:
             if not self._recent_packets:
                 return None
-            # Find the packet closest in time to the MQTT message (within 1 second)
+            # Find the packet closest in time to the MQTT message (within 1.5 seconds)
             best_ip = None
             best_delta = float('inf')
             for pkt_time, pkt_ip in reversed(self._recent_packets):
                 delta = abs(pkt_time - mqtt_timestamp)
-                if delta < best_delta and delta < 1.0:
+                if delta < best_delta and delta < 1.5:
                     best_delta = delta
                     best_ip = pkt_ip
+            # Flood fallback: If packet rate is high and no exact timestamp match, return latest external IP
+            if not best_ip and self._recent_packets:
+                for _, pkt_ip in reversed(self._recent_packets):
+                    if pkt_ip not in ('127.0.0.1', 'localhost'):
+                        return pkt_ip
             return best_ip
 
     def get_stats(self) -> dict:

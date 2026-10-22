@@ -34,17 +34,17 @@
 // ==============================================================================
 const char* WIFI_SSID = "HarishsPhone";
 const char* WIFI_PASS = "Podaapattiiii";
-const char* MQTT_SERVER = "10.59.53.30";
+const char* MQTT_SERVER = "10.54.192.30";
 const int MQTT_PORT = 1883;
 const char* NODE_ID = "node_01";
 const char* HMAC_SECRET_KEY = "smartgrid_secret_key_2025";
-const int PUBLISH_INTERVAL_MS = 5000;
+const int PUBLISH_INTERVAL_MS = 1000;
 
 // Static IP Configuration on Hotspot Subnet
-IPAddress staticIP(10, 59, 53, 251);
-IPAddress gateway(10, 59, 53, 1);
+IPAddress staticIP(10, 54, 192, 251);
+IPAddress gateway(10, 54, 192, 180);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress dns(10, 59, 53, 1);
+IPAddress dns(10, 54, 192, 180);
 
 const char* MQTT_TOPIC_PUB = "smartgrid/node01/telemetry";
 const char* MQTT_TOPIC_SUB = "smartgrid/node01/cmd";
@@ -218,6 +218,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     attackFreezeActive = false;
     Serial.println("[ATTACK] Stopped");
   }
+  else if (strcmp(cmd, "RESTART") == 0 || strcmp(cmd, "REBOOT") == 0 || strcmp(cmd, "RESET") == 0) {
+    Serial.println("[SYSTEM] Remote Software Reset Triggered!");
+    delay(200);
+    ESP.restart();
+  }
 }
 
 // ==============================================================================
@@ -226,21 +231,25 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 void ensureWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
   
-  Serial.print("Connecting to WiFi");
-  // SECTION 2 — Static IP setup
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(WIFI_SSID);
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_STA);
   WiFi.config(staticIP, gateway, subnet, dns);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  int backoff = 1000;
   int attempt = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(backoff);
+    delay(500);
     Serial.print(".");
-    backoff = min(backoff * 2, 30000);
     attempt++;
-    if (attempt > 6) { // Reaches ~30s total
-      Serial.println(" WiFi failed. Restarting.");
-      ESP.restart();
+    if (attempt > 30) {
+      Serial.println("\nWiFi retry...");
+      WiFi.disconnect(true);
+      delay(500);
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      attempt = 0;
     }
   }
   Serial.println("\nWiFi Connected. IP: " + WiFi.localIP().toString());
@@ -258,12 +267,15 @@ void ensureMQTT() {
     } else {
       Serial.print("Failed, rc=");
       Serial.print(mqtt.state());
-      Serial.println(". Retrying in 3s...");
-      delay(3000);
+      Serial.println(". Retrying in 2s...");
+      delay(2000);
       attempt++;
-      if (attempt >= 5) {
-        Serial.println("MQTT max retries reached. Restarting.");
-        ESP.restart();
+      if (attempt >= 10) {
+        Serial.println("MQTT retries exceeded. Flushing WiFi stack for auto-healing...");
+        WiFi.disconnect(true);
+        delay(500);
+        ensureWiFi();
+        attempt = 0;
       }
     }
   }
@@ -281,6 +293,7 @@ void setup() {
   mqtt.setServer(MQTT_SERVER, MQTT_PORT);
   mqtt.setCallback(mqttCallback);
   mqtt.setBufferSize(1024);
+  mqtt.setKeepAlive(5); // Rapid 5s keepalive to detect broken TCP socket immediately
 
   ensureWiFi();
   
@@ -376,8 +389,23 @@ void loop() {
       String finalPayload;
       serializeJson(doc, finalPayload);
 
-      // 8. Publish to MQTT
-      mqtt.publish(MQTT_TOPIC_PUB, finalPayload.c_str(), false); 
+      // 8. Publish to MQTT with Software Auto-Healing Watchdog
+      static int publishFailCount = 0;
+      bool pubOk = mqtt.publish(MQTT_TOPIC_PUB, finalPayload.c_str(), false);
+      if (!pubOk) {
+        publishFailCount++;
+        Serial.printf("[WARN] MQTT Publish failed (%d/3)\n", publishFailCount);
+        if (publishFailCount >= 3) {
+          Serial.println("[AUTO-HEALING] Link disrupted or ARP hijacked. Reconnecting WiFi stack...");
+          WiFi.disconnect();
+          delay(500);
+          ensureWiFi();
+          mqtt.disconnect();
+          publishFailCount = 0;
+        }
+      } else {
+        publishFailCount = 0;
+      }
       
       // 9. Print debug output
       Serial.printf("[%s][%02d:%02d:%02d] V=%.1f I=%.3f P=%.1f PF=%.2f | MQTT OK | HMAC=%s...\n",

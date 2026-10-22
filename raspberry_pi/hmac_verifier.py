@@ -11,6 +11,7 @@ import hmac
 import hashlib
 import json
 import os
+import time
 import logging
 from typing import Dict, Any
 
@@ -86,7 +87,10 @@ def verify_payload_hmac(payload_dict: Dict[str, Any]) -> Dict[str, Any]:
         
         if received_hmac is None or not str(received_hmac).strip():
             result['hmac_missing'] = True
-            logger.warning("HMAC field is missing or empty in the payload.")
+            now = time.time()
+            if now - getattr(verify_payload_hmac, '_last_missing_warn', 0.0) >= 3.0:
+                verify_payload_hmac._last_missing_warn = now
+                logger.warning("HMAC field is missing or empty in the payload.")
         else:
             result['hmac_missing'] = False
 
@@ -108,7 +112,10 @@ def verify_payload_hmac(payload_dict: Dict[str, Any]) -> Dict[str, Any]:
                 logger.warning(f"HMAC mismatch. Expected: {expected_hmac}, Received: {received_hmac}")
 
     except Exception as e:
-        logger.error(f"Error during HMAC verification: {e}")
+        now = time.time()
+        if now - getattr(verify_payload_hmac, '_last_err_warn', 0.0) >= 5.0:
+            verify_payload_hmac._last_err_warn = now
+            logger.error(f"Error during HMAC verification: {e}")
 
     return result
 

@@ -21,21 +21,33 @@ for p in env_paths:
         load_dotenv(p, override=True)
 
 # MQTT Configuration
-MQTT_BROKER_IP = os.getenv('MQTT_BROKER_IP', '10.59.53.30')
+raw_broker = os.getenv('MQTT_BROKER_IP', '127.0.0.1').strip().strip("'").strip('"')
+if raw_broker.lower() in ('localhost', '') or raw_broker.endswith('.') or len(raw_broker.split('.')) != 4:
+    MQTT_BROKER_IP = '127.0.0.1'
+else:
+    MQTT_BROKER_IP = raw_broker
+
 MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 MQTT_TOPIC_TELEMETRY = 'smartgrid/node01/telemetry'
 MQTT_TOPIC_CMD = 'smartgrid/node01/cmd'
 MQTT_TOPIC_ALERTS = 'smartgrid/alerts'
 
 # Node Configuration
-NODE_ID = os.getenv('NODE_ID', 'node_01')
-EXPECTED_NODE_IP = os.getenv('EXPECTED_NODE_IP', '10.59.53.251')
+NODE_ID = os.getenv('NODE_ID', 'node_01').strip().strip("'").strip('"')
+raw_node_ip = os.getenv('EXPECTED_NODE_IP', '10.54.192.251').strip().strip("'").strip('"')
+if raw_node_ip.endswith('.') or len(raw_node_ip.split('.')) != 4:
+    EXPECTED_NODE_IP = '10.54.192.251'
+else:
+    EXPECTED_NODE_IP = raw_node_ip
+
+EXPECTED_NODE_MAC = os.getenv('EXPECTED_NODE_MAC', 'a0:b7:65:23:14:08').strip().strip("'").strip('"')
 
 # Security
 HMAC_SECRET_KEY = os.getenv('HMAC_SECRET_KEY', 'smartgrid_secret_key_2025')
 
 # ThingSpeak
 THINGSPEAK_WRITE_KEY = os.getenv('THINGSPEAK_WRITE_KEY', '').strip().strip("'").strip('"')
+THINGSPEAK_ENABLED = os.getenv('THINGSPEAK_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 THINGSPEAK_BASE_URL = 'https://api.thingspeak.com/update'
 
 # Database
@@ -93,6 +105,43 @@ IF_MODEL_PATH = Path(__file__).parent / 'models' / 'isolation_forest.pkl'
 
 # Results
 RESULTS_DIR = Path(__file__).parent / 'results'
+
+# ═══════════════════════════════════════════════════════
+# DoS Detection Settings
+# ═══════════════════════════════════════════════════════
+DOS_RATE_WINDOW_S = int(os.getenv('DOS_RATE_WINDOW_S', '10'))
+DOS_WARNING_RATE = int(os.getenv('DOS_WARNING_RATE', '10'))       # msg/s per IP
+DOS_CRITICAL_RATE = int(os.getenv('DOS_CRITICAL_RATE', '20'))     # msg/s per IP → block
+DOS_BLOCK_DURATION_S = int(os.getenv('DOS_BLOCK_DURATION_S', '300'))
+DOS_ENABLE_IPTABLES = os.getenv('DOS_ENABLE_IPTABLES', 'true').lower() in ('true', '1', 'yes')
+
+# ═══════════════════════════════════════════════════════
+# InfluxDB Settings (for Grafana dashboards)
+# ═══════════════════════════════════════════════════════
+INFLUXDB_HOST = os.getenv('INFLUXDB_HOST', 'localhost')
+INFLUXDB_PORT = int(os.getenv('INFLUXDB_PORT', '8086'))
+INFLUXDB_DATABASE = os.getenv('INFLUXDB_DATABASE', 'smartgrid')
+INFLUXDB_ENABLED = os.getenv('INFLUXDB_ENABLED', 'true').lower() in ('true', '1', 'yes')
+
+# ═══════════════════════════════════════════════════════
+# Digital Twin Settings
+# ═══════════════════════════════════════════════════════
+TWIN_NODE_ID = os.getenv('TWIN_NODE_ID', 'twin_01')
+TWIN_TOPIC = f'smartgrid/{TWIN_NODE_ID}/telemetry'
+TWIN_PUBLISH_INTERVAL_S = float(os.getenv('TWIN_PUBLISH_INTERVAL_S', '5.0'))
+
+# ═══════════════════════════════════════════════════════
+# Industrial Modbus TCP Settings (SCADA Interface)
+# ═══════════════════════════════════════════════════════
+MODBUS_ENABLED = os.getenv('MODBUS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+MODBUS_HOST = os.getenv('MODBUS_HOST', '0.0.0.0')
+MODBUS_PORT = int(os.getenv('MODBUS_PORT', '5020'))
+
+# ═══════════════════════════════════════════════════════
+# WLS State Estimation & Virtual PMU Settings
+# ═══════════════════════════════════════════════════════
+WLS_CHI2_THRESHOLD = float(os.getenv('WLS_CHI2_THRESHOLD', '11.34'))  # alpha=0.01, 3 DOF
+PMU_REPORT_RATE_HZ = float(os.getenv('PMU_REPORT_RATE_HZ', '10.0'))   # 100ms sub-second stream
 
 # Ensure directories exist
 for d in [DB_PATH.parent, LOG_DIR, IF_MODEL_PATH.parent, RESULTS_DIR]:

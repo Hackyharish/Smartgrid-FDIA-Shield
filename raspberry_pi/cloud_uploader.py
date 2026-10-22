@@ -26,6 +26,9 @@ class CloudUploader:
         self._latest_data = None
         self._lock = threading.Lock()
         
+        self._dns_backoff_until = 0.0
+        self._last_dns_warn_time = 0.0
+
         # Stats
         self.stats = {
             'uploads_attempted': 0,
@@ -36,8 +39,8 @@ class CloudUploader:
     
     def start(self):
         """Start the upload scheduler in a background thread."""
-        if not self.api_key or self.api_key == 'YOUR_KEY_HERE':
-            logger.warning('ThingSpeak API key not configured. Cloud upload disabled.')
+        if not self.api_key or self.api_key in ('YOUR_KEY_HERE', 'disabled', 'None', ''):
+            logger.info('ThingSpeak cloud upload disabled (no key or offline mode).')
             return
         
         self._running = True
@@ -71,6 +74,10 @@ class CloudUploader:
     
     def _upload(self):
         """Upload latest data to ThingSpeak."""
+        now = time.time()
+        if now < getattr(self, '_dns_backoff_until', 0.0):
+            return
+
         with self._lock:
             data = self._latest_data
         
@@ -105,17 +112,25 @@ class CloudUploader:
         self.stats['uploads_attempted'] += 1
         
         try:
-            resp = requests.get(self.base_url, params=params, timeout=10)
+            resp = requests.get(self.base_url, params=params, timeout=5)
             if resp.status_code == 200 and resp.text.strip() != '0':
                 self.stats['uploads_success'] += 1
                 self.stats['last_upload_time'] = time.time()
+                self._dns_backoff_until = 0.0
                 logger.debug(f'ThingSpeak upload OK (entry: {resp.text.strip()})')
             else:
                 self.stats['uploads_failed'] += 1
                 logger.warning(f'ThingSpeak upload failed: {resp.status_code} {resp.text}')
         except requests.RequestException as e:
             self.stats['uploads_failed'] += 1
-            logger.error(f'ThingSpeak request failed: {e}')
+            err_str = str(e)
+            if any(term in err_str for term in ('NameResolutionError', 'Temporary failure in name resolution', 'getaddrinfo failed')):
+                self._dns_backoff_until = time.time() + 60.0  # Back off for 60 seconds
+                if time.time() - getattr(self, '_last_dns_warn_time', 0.0) >= 120.0:
+                    self._last_dns_warn_time = time.time()
+                    print("[WARN] ThingSpeak cloud DNS unreachable (check hotspot mobile data). Local Modbus/Grafana active. Retrying in 60s...")
+            else:
+                logger.error(f'ThingSpeak request failed: {e}')
     
     def get_stats(self) -> dict:
         """Return a copy of the uploader statistics."""

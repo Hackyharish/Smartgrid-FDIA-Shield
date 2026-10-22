@@ -71,8 +71,8 @@ class FDIDetector:
         # Stealth Ramp & CUSUM drift detection
         self.cusum_pos = 0.0
         self.cusum_neg = 0.0
-        self.cusum_k = 0.4   # Drift sensitivity threshold (Volts)
-        self.cusum_h = 2.4   # Decision threshold (Cumulative Volts)
+        self.cusum_k = 0.35  # Drift sensitivity threshold (Volts)
+        self.cusum_h = 3.5   # Decision threshold (Cumulative Volts)
         self.ramp_consecutive_inc = 0
         self.ramp_consecutive_dec = 0
         self.last_voltage = None
@@ -283,23 +283,38 @@ class FDIDetector:
         # 8. Stealth Monotonic Voltage Ramp & CUSUM Drift Detection
         if self.last_voltage is not None:
             dv = v - self.last_voltage
-            self.cusum_pos = max(0.0, self.cusum_pos + (dv - self.cusum_k))
-            self.cusum_neg = max(0.0, self.cusum_neg + (-dv - self.cusum_k))
-            
-            if dv > 0.25:
-                self.ramp_consecutive_inc += 1
-                self.ramp_consecutive_dec = 0
-            elif dv < -0.25:
-                self.ramp_consecutive_dec += 1
+
+            # Transient step jump (e.g. attack started, stopped, or load stepped):
+            # Reset CUSUM so large single-packet jumps do not latch drift detectors
+            if abs(dv) > 3.0:
+                self.cusum_pos = 0.0
+                self.cusum_neg = 0.0
                 self.ramp_consecutive_inc = 0
+                self.ramp_consecutive_dec = 0
             else:
-                self.ramp_consecutive_inc = max(0, self.ramp_consecutive_inc - 1)
-                self.ramp_consecutive_dec = max(0, self.ramp_consecutive_dec - 1)
-                
-            if (self.ramp_consecutive_inc >= 4 and abs(v - 230.0) >= 2.0) or \
-               (self.ramp_consecutive_dec >= 4 and abs(v - 230.0) >= 2.0) or \
-               (self.cusum_pos >= self.cusum_h and abs(v - 230.0) >= 2.0) or \
-               (self.cusum_neg >= self.cusum_h and abs(v - 230.0) >= 2.0):
+                if dv > 0.35:
+                    self.ramp_consecutive_inc += 1
+                    self.ramp_consecutive_dec = 0
+                    self.cusum_pos = max(0.0, self.cusum_pos + (dv - self.cusum_k))
+                elif dv < -0.35:
+                    self.ramp_consecutive_dec += 1
+                    self.ramp_consecutive_inc = 0
+                    self.cusum_neg = max(0.0, self.cusum_neg + (-dv - self.cusum_k))
+                else:
+                    # Steady-state (|dv| <= 0.35V): active drift has halted
+                    self.ramp_consecutive_inc = 0
+                    self.ramp_consecutive_dec = 0
+                    self.cusum_pos = 0.0
+                    self.cusum_neg = 0.0
+
+            # Voltage drift relative to nominal 230.0V
+            v_dev = abs(v - 230.0)
+
+            # Active ramp detection requires:
+            # (1) Active monotonic drift (streak >= 4 or CUSUM >= h)
+            # AND (2) Significant absolute drift from nominal (>= 4.0V)
+            if ((self.ramp_consecutive_inc >= 4 or self.cusum_pos >= self.cusum_h) and (v - 230.0 >= 4.0)) or \
+               ((self.ramp_consecutive_dec >= 4 or self.cusum_neg >= self.cusum_h) and (230.0 - v >= 4.0)):
                 violations['ramp_detected'] = True
                 score += 0.5
         self.last_voltage = v

@@ -351,12 +351,12 @@ def process_payload(payload, db, detector, recovery, fingerprint, alert_pub, clo
             detection_id=detection_id,
             node_id=payload.get('node_id', NODE_ID),
             timestamp=payload.get('timestamp', int(time.time())),
-            voltage=payload.get('voltage_V', 0),
-            current=payload.get('current_A', 0),
-            power=payload.get('power_W', 0),
-            energy=payload.get('energy_Wh', 0),
-            frequency=payload.get('frequency_Hz', 50.0),
-            pf=payload.get('power_factor', 1.0),
+            voltage=float(payload.get('voltage_V', payload.get('voltage_v', payload.get('voltage', 230.0)))),
+            current=float(payload.get('current_A', payload.get('current_a', payload.get('current', 0.0)))),
+            power=float(payload.get('power_W', payload.get('power_w', payload.get('power', 0.0)))),
+            energy=float(payload.get('energy_Wh', payload.get('energy_wh', payload.get('energy_kWh', 0)))),
+            frequency=float(payload.get('frequency_Hz', payload.get('frequency_hz', 50.0))),
+            pf=float(payload.get('power_factor', payload.get('pf', 1.0))),
             data_source='ORIGINAL',
         )
         # Update recovery history with verified reading
